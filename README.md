@@ -17,10 +17,6 @@ Prototype: Fabric 1.21.1 only. Ports to the other loaders and versions come once
 
 Builds need JDK 21. Loom is pinned to 1.17 because 1.18 and later need Java 25 to run Gradle.
 
-## What it sends
-
-Tandem signs in to KeplerSync and talks to its server at keplersync.app. When you turn on sync for a world, Tandem uploads that world's files to KeplerSync's storage, or to your own storage bucket if you set one up, so the friends you share it with can open it. Worlds you don't sync never leave your PC. Level-of-detail data (Distant Horizons, Voxy) is never uploaded. When you play together and a direct connection doesn't work, the game traffic goes through KeplerSync's relay. When something goes wrong, Tandem sends its log to KeplerSync so it can be fixed; you can turn that off in Settings, or send a log yourself with Send logs. Each time the game starts, Tandem asks Modrinth whether a newer Tandem is out; it downloads one only when you press Update. What's kept and for how long: https://keplersync.app/privacy
-
 ## License
 
 The code is licensed under [GPL-3.0](LICENSE).
