@@ -1,0 +1,9 @@
+{
+	"required": true,
+	"package": "app.keplersync.tandem.fabric.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": ["DatapackLoadFailureScreenAccess", "IntegratedServerMixin", "KeyboardHandlerMixin", "MinecraftServerMixin", "PlayerListMixin", "ToastComponentAccess", "WorldListEntryMixin"],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

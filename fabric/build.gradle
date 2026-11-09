@@ -1,0 +1,179 @@
+plugins {
+	id 'fabric-loom' version "${loom_version}"
+	id 'org.jetbrains.kotlin.jvm' version "${kotlin_version}"
+}
+
+base {
+	archivesName = 'tandem-fabric'
+}
+
+repositories {
+	maven {
+		name = 'Essential'
+		url = 'https://repo.essential.gg/repository/maven-public'
+	}
+	maven {
+		name = 'TerraformersMC'
+		url = 'https://maven.terraformersmc.com/releases'
+	}
+}
+
+loom {
+	runs {
+		shots {
+			inherit client
+			name 'Shots'
+			vmArg '-Dtandem.shots=true'
+		}
+		// Two games sharing one dev cloud folder: run both to pass a world back and forth. The check runs do it by
+		// themselves, one after the other (runCheckA, runCheckB, runCheckA).
+		// They also sign in to a local KeplerSync server, through a fake Mojang for these offline accounts
+		// (java dev/FakeMojang.java). Without the server running they say so and keep the sample's friends away.
+		def devcloud = "-Dtandem.devcloud=${rootProject.file('devcloud').absolutePath}"
+		// dev/checks.sh gives every run of the checks its own fresh game folders: -Ptandem.runs=<folder>.
+		def runs = project.findProperty('tandem.runs')
+		def checkdir = "-Dtandem.checkdir=${runs ? "${runs}/check" : rootProject.file('devcloud/check').absolutePath}"
+		def account = ['-Dtandem.server=http://localhost:8080', '-Dminecraft.api.session.host=http://127.0.0.1:8090',
+				'-Dminecraft.api.services.host=http://127.0.0.1:8090']
+		// Another PC on this network (a Mac, say), on this PC's local KeplerSync, with no Minecraft account:
+		// gradlew :fabric:runLan -Ptandem.host=<this PC's address> -Ptandem.name=<any name>
+		def host = project.findProperty('tandem.host') ?: 'localhost'
+		// A headless server that makes the big test world with Chunky (devcloud/bigworld-server; driven over RCON).
+		register('bigWorld') {
+			inherit server
+			name 'Big world'
+			runDir '../devcloud/bigworld-server'
+			programArgs '--nogui'
+		}
+		register('lan') {
+			inherit client
+			name 'LAN test'
+			runDir 'run-lan'
+			programArgs '--username', project.findProperty('tandem.name') ?: 'Tester'
+			["-Dtandem.server=http://${host}:8080", "-Dminecraft.api.session.host=http://${host}:8090",
+					"-Dminecraft.api.services.host=http://${host}:8090"].each { vmArg it }
+		}
+		[cloudA: ['Alex', 'run-a', []], cloudB: ['Sam', 'run-b', []],
+				checkA: ['Alex', 'run-a', ['-Dtandem.synccheck=true', '-Dtandem.checkpointSeconds=20']],
+				checkB: ['Sam', 'run-b', ['-Dtandem.synccheck=true', '-Dtandem.checkpointSeconds=20']],
+				friendA: ['Alex', 'run-a', ['-Dtandem.friendcheck=true']],
+				friendB: ['Sam', 'run-b', ['-Dtandem.friendcheck=true']],
+				leaseA: ['Alex', 'run-a', ['-Dtandem.leasecheck=true']],
+				leaseB: ['Sam', 'run-b', ['-Dtandem.leasecheck=true']],
+				playA: ['Alex', 'run-a', ['-Dtandem.playcheck=true']],
+				playB: ['Sam', 'run-b', ['-Dtandem.playcheck=true']],
+				playARelay: ['Alex', 'run-a', ['-Dtandem.playcheck=true', '-Dtandem.playround=relay', '-Dtandem.ticketReuseMs=0']],
+				playAPunch: ['Alex', 'run-a', ['-Dtandem.playcheck=true', '-Dtandem.playround=punch']],
+				playBPunch: ['Sam', 'run-b', ['-Dtandem.playcheck=true', '-Dtandem.forcePunch=true']],
+				handA: ['Alex', 'run-a', ['-Dtandem.handoffcheck=true']],
+				handB: ['Sam', 'run-b', ['-Dtandem.handoffcheck=true']],
+				histA: ['Alex', 'run-a', ['-Dtandem.historycheck=true', "-Dtandem.downloads=${rootProject.file('devcloud/downloads').absolutePath}"]],
+				histB: ['Sam', 'run-b', ['-Dtandem.historycheck=true']],
+				ownA: ['Alex', 'run-a', ['-Dtandem.owncheck=true']],
+				ownB: ['Sam', 'run-b', ['-Dtandem.owncheck=true']],
+				roundA: ['Alex', 'run-a', ['-Dtandem.roundcheck=true']],
+				roundB: ['Sam', 'run-b', ['-Dtandem.roundcheck=true']],
+				walkA: ['Alex', 'run-a', ['-Dtandem.walkcheck=true']],
+				walkC: ['Riley', 'run-c', ['-Dtandem.walkcheck=true']],
+				bigA: ['Alex', 'run-a', ['-Dtandem.bigcheck=true', '-Dtandem.checkpointSeconds=20']],
+				bigB: ['Sam', 'run-b', ['-Dtandem.bigcheck=true']],
+				playBRelay: ['Sam', 'run-b', ['-Dtandem.playcheck=true', '-Dtandem.forceRelay=true']],
+				// One game, a few steps and screenshots: -Ptandem.shoot="play;wait:40;shot:name" (Shots.shoot).
+				shootA: ['Alex', 'run-a', ['-Dtandem.shooting=true', "-Dtandem.shoot=${project.findProperty('tandem.shoot') ?: ''}"]],
+				// Alex's account in a second game (another PC, or a second Minecraft), with its own game folder.
+				shootA2: ['Alex', 'run-a2', ['-Dtandem.shooting=true', "-Dtandem.shoot=${project.findProperty('tandem.shoot') ?: ''}"]],
+				// A cracked or offline account: Mojang can't be reached to confirm it.
+				shootX: ['Robin', 'run-x', ['-Dtandem.shooting=true', "-Dtandem.shoot=${project.findProperty('tandem.shoot') ?: ''}",
+						'-Dminecraft.api.session.host=http://127.0.0.1:9']]].each { run, opts ->
+			register(run) {
+				inherit client
+				name "${run.startsWith('check') ? 'Sync check' : 'Dev cloud'}, ${opts[0]}"
+				runDir runs ? "${runs}/${opts[1]}" : opts[1]
+				programArgs '--username', opts[0]
+				vmArg devcloud
+				vmArg checkdir
+				(account + opts[2]).each { vmArg it }
+			}
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings loom.officialMojangMappings()
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	modCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+
+	implementation project(':core')
+	include project(':core')
+
+	implementation include("gg.essential:elementa:${project.elementa_version}")
+	modImplementation include("gg.essential:universalcraft-1.21-fabric:${project.universalcraft_version}")
+	// Modrinth's mod icons are WebP, which Minecraft can't read.
+	['imageio:imageio-webp', 'imageio:imageio-core', 'imageio:imageio-metadata', 'common:common-lang', 'common:common-io', 'common:common-image'].each {
+		implementation include("com.twelvemonkeys.$it:${project.twelvemonkeys_version}")
+	}
+	// Same nested mod id as fabric-language-kotlin's copy, so Fabric loads only the newer one.
+	include "org.jetbrains.kotlin:kotlin-stdlib:${project.kotlin_version}"
+}
+
+// The built jar in a real Fabric game, as players get it: `gradlew :fabric:runProduction`.
+configurations {
+	productionRuntimeMods
+}
+
+dependencies {
+	productionRuntimeMods "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+tasks.register('runProduction', net.fabricmc.loom.task.prod.ClientProductionRunTask) {
+	mods.from(configurations.productionRuntimeMods)
+}
+
+processResources {
+	def version = project.version
+	inputs.property 'version', version
+
+	filesMatching('fabric.mod.json') {
+		expand 'version': version
+	}
+	from(rootProject.file('LICENSE')) {
+		into 'licenses'
+		rename { 'Tandem-GPL-3.0.txt' }
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 21
+}
+
+jar {
+	exclude 'app/keplersync/tandem/fabric/dev/**'
+}
+
+// Tandem's updater only puts in jars signed with KeplerSync's key (Updates.KEY), so release builds are signed with
+// it. The key stays outside the repository; a build without it makes an unsigned jar, fine for trying things out.
+def keystore = file(System.getenv('TANDEM_SIGNING_KEYSTORE') ?: rootProject.file('../tandem-signing/tandem.p12'))
+def storepass = file(System.getenv('TANDEM_SIGNING_PASSWORD_FILE') ?: rootProject.file('../tandem-signing/password.txt'))
+def signJar = tasks.register('signJar', Exec) {
+	dependsOn remapJar
+	onlyIf { keystore.isFile() }
+	def built = remapJar.archiveFile.get().asFile
+	commandLine "${System.getProperty('java.home')}/bin/jarsigner", '-keystore', keystore, '-storetype', 'PKCS12',
+			'-storepass:file', storepass, built, 'tandem'
+}
+tasks.named('build') { dependsOn signJar }
+tasks.named('runProduction') { dependsOn signJar }
+
+kotlin {
+	compilerOptions {
+		jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+	}
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
+}

@@ -1,0 +1,49 @@
+plugins {
+	id 'java-library'
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// Minecraft ships Gson on every version Tandem supports; 2.8.9 keeps core to the API 1.16.5's copy has.
+	compileOnly 'com.google.code.gson:gson:2.8.9'
+	testImplementation 'com.google.code.gson:gson:2.8.9'
+	testImplementation platform('org.junit:junit-bom:5.11.4')
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// 1.16.5 runs on Java 8, and core is shared by every port.
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 8
+	it.options.compilerArgs << '-Xlint:-options'
+}
+
+tasks.named('compileTestJava') {
+	options.release = 21
+}
+
+test {
+	useJUnitPlatform {
+		excludeTags 'kill'
+	}
+}
+
+tasks.register('killTest', Test) {
+	description = 'Kills the sync engine at random moments, a few hundred times, and checks nothing is lost.'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform {
+		includeTags 'kill'
+	}
+	systemProperty 'tandem.kill.runs', providers.gradleProperty('runs').getOrElse('300')
+	systemProperty 'tandem.kill.seed', providers.gradleProperty('seed').getOrElse('')
+	testLogging {
+		showStandardStreams = true
+		exceptionFormat = 'full'
+	}
+	outputs.upToDateWhen { false }
+}

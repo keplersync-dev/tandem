@@ -1,0 +1,26 @@
+{
+	"schemaVersion": 1,
+	"id": "tandem",
+	"version": "${version}",
+	"name": "Tandem",
+	"description": "Play together without renting a server, and keep your world synced so anyone in the group can host it. Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.",
+	"authors": ["KeplerSync"],
+	"contact": {
+		"homepage": "https://keplersync.app",
+		"email": "support@keplersync.app"
+	},
+	"license": "GPL-3.0-only",
+	"icon": "assets/tandem/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["app.keplersync.tandem.fabric.TandemClient"],
+		"modmenu": ["app.keplersync.tandem.fabric.ui.TandemModMenu"]
+	},
+	"mixins": ["tandem.mixins.json"],
+	"depends": {
+		"fabricloader": ">=0.15.11",
+		"minecraft": "1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
