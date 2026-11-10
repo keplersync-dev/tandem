@@ -129,6 +129,14 @@ object Shots {
 
 	private fun target(mc: Minecraft, name: String) = (mc.screen as PlayScreen).devTargets.getValue(name)
 
+	/** True once [name] is fully inside the worlds list; until then it scrolls one notch towards it (earlier suites leave many worlds). */
+	private fun inView(mc: Minecraft, name: String): Boolean {
+		val list = target(mc, "worlds"); val c = target(mc, name)
+		if (c.getTop() >= list.getTop() && c.getBottom() <= list.getBottom()) return true
+		scroll(mc, list, if (c.getTop() < list.getTop()) 1.0 else -1.0)
+		return false
+	}
+
 	// The screen builds once more on its first frame, which would close a menu opened straight away.
 	private fun play(what: String? = null) {
 		step { it.setScreen(PlayScreen()) }
@@ -1611,6 +1619,7 @@ object Shots {
 				waitFor(4800) { marked("alex-free") }
 				play()
 				waitFor(600) { world()?.state == WorldState.READY }
+				steps += { inView(it, "button-Round Base") }
 				step { click(it, target(it, "button-Round Base")) }
 				waitFor(2400) { it.singleplayerServer != null && it.player != null && it.screen == null }
 				step { check("hosts Round Base", it.singleplayerServer != null); mark("sam-hosting") }
@@ -1833,6 +1842,7 @@ object Shots {
 					check("Alex's first upload shows as Alex saving, with how far it's got", Sample.worlds.any { w -> w.name == "Big Base" && w.state == WorldState.SAVING })
 					shot(it, "big-b-saving")
 				}
+				steps += { inView(it, "button-Big Base") }
 				step { click(it, target(it, "button-Big Base")) }
 				sleep(20)
 				step { shot(it, "big-b-play-when-ready") }
@@ -1843,6 +1853,7 @@ object Shots {
 				n = 0
 				steps += { Sample.worlds.any { w -> w.name == "Big Base" && w.cloudId != null && w.state == WorldState.READY } || ++n > 6000 }
 				var t0 = 0L
+				steps += { inView(it, "button-Big Base") }
 				step { t0 = System.nanoTime(); click(it, target(it, "button-Big Base")) }
 				sleep(60)
 				step { shot(it, "big-b-getting") }

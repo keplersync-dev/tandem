@@ -26,7 +26,8 @@ JAVA=${JAVA_HOME:+$JAVA_HOME/bin/}java
 
 say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$OUT/run.log"; }
 pid_on() { netstat -ano | grep -E "(127\.0\.0\.1|0\.0\.0\.0):$1 .*LISTENING" | awk '{print $NF}' | head -1; }
-free_port() { local p; p=$(pid_on "$1"); [ -n "$p" ] && [ "$p" != 0 ] && taskkill //PID "$p" //F > /dev/null 2>&1; true; }
+# netstat doesn't always list a listening socket as LISTENING here, so ask Windows for every process bound to the port.
+free_port() { powershell.exe -NoProfile -Command "Get-NetTCPConnection -LocalPort $1 -ErrorAction SilentlyContinue | Where-Object OwningProcess -gt 0 | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" > /dev/null 2>&1; true; }
 up() { for _ in $(seq 1 90); do curl -s "http://127.0.0.1:$1/healthz" > /dev/null && return 0; sleep 1; done; return 1; }
 mark() { : > "$MARKS/$1"; }
 marked() { [ -e "$MARKS/$1" ]; }

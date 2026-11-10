@@ -838,11 +838,13 @@ fun Dialogs.noSpace(w: World) {
 
 /** A friend is hosting a synced world, and their game isn't open to friends (no KeplerSync, or it can't be reached). */
 fun Dialogs.joinLater(w: World) {
-	val skin = Sample.friends.firstOrNull { it.name == w.who }?.skin ?: yourSkin()
+	val friend = Sample.friends.firstOrNull { it.name == w.who }
+	// Their skin may still be loading: the face asks each frame.
+	val skin = { friend?.skin ?: yourSkin() }
 	layers.openDialog {
 		dialog(
 			500,
-			who(Face({ skin }, 48, 10, null, Tok.panel), tr("tandem.is_hosting", w.who, w.name), tr("tandem.only_one_person_can_host_a_synced", w.who, w.name, w.who), 500),
+			who(Face(skin, 48, 10, null, Tok.panel), tr("tandem.is_hosting", w.who, w.name), tr("tandem.only_one_person_can_host_a_synced", w.who, w.name, w.who), 500),
 			actions(500, Button(tr("tandem.ok"), Kind.FILLED, Size.NORMAL, null, Tok.panel) { layers.closeDialog() }),
 		)
 	}
@@ -915,12 +917,14 @@ fun Dialogs.gettingLatest(w: World, t: WorldSync.Transfer, helper: Person? = nul
 
 /** Play when ready, for real: the friend's upload progress comes from their lease; [done] closes it. */
 fun Dialogs.waitingFor(w: World, value: () -> Float, done: () -> Boolean) {
-	val skin = Sample.friends.firstOrNull { it.name == w.who }?.skin ?: yourSkin()
+	val friend = Sample.friends.firstOrNull { it.name == w.who }
+	// Their skin may still be loading: the face asks each frame.
+	val skin = { friend?.skin ?: yourSkin() }
 	layers.openDialog {
 		val pct = Label(tr("tandem.uploaded", w.pct), 13, Weight.REGULAR, Tok.muted)
 		val box = dialog(
 			500,
-			who(Face({ skin }, 48, 10, null, Tok.panel), tr("tandem.waiting_for_to_finish_saving", w.who), tr("tandem.s_last_session_of_is_uploading_the", w.who, w.name), 500),
+			who(Face(skin, 48, 10, null, Tok.panel), tr("tandem.waiting_for_to_finish_saving", w.who), tr("tandem.s_last_session_of_is_uploading_the", w.who, w.name), 500),
 			progress(true, 500, value, pct, Label("", 13, Weight.REGULAR, Tok.muted)),
 			actions(500, Button(tr("tandem.stop_waiting"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog() }),
 		)
@@ -956,11 +960,13 @@ fun Dialogs.changedOutside(w: World, files: Int, cancel: () -> Unit, discard: ()
 fun Dialogs.waitQuit(w: World, pct: Float, by: String, lastUpload: String, carryOn: (() -> Unit)? = null) {
 	devQuitShown = true
 	devCarryOn = carryOn?.let { { layers.closeDialog(); carryOnFirst(w, lastUpload, it) } }
-	val skin = Sample.friends.firstOrNull { it.name == w.who }?.skin ?: yourSkin()
+	val friend = Sample.friends.firstOrNull { it.name == w.who }
+	// Their skin may still be loading: the face asks each frame.
+	val skin = { friend?.skin ?: yourSkin() }
 	layers.openDialog {
 		dialog(
 			500,
-			who(Face({ skin }, 48, 10, null, Tok.panel), tr("tandem.is_still_saving", w.who, w.name), tr("tandem.closed_minecraft_before_this_session", w.who, w.who), 500),
+			who(Face(skin, 48, 10, null, Tok.panel), tr("tandem.is_still_saving", w.who, w.name), tr("tandem.closed_minecraft_before_this_session", w.who, w.who), 500),
 			progress(true, 500, { pct }, Label(tr("tandem.paused_at", (pct * 100).roundToInt()), 13, Weight.MEDIUM, Tok.warn), Label(tr("tandem.waits_until", by), 13, Weight.REGULAR, Tok.muted)),
 			safe("clock", tr("tandem.not_back_by_then", w.who, lastUpload), 500, Tok.muted),
 			if (carryOn == null) actions(500, Button(tr("tandem.close"), Kind.FILLED, Size.NORMAL, null, Tok.panel) { layers.closeDialog() })
@@ -1122,11 +1128,13 @@ fun Dialogs.openToFriends(world: String, mode: GameType, difficulty: Difficulty,
 
 /** Joining a friend's game: what's happening right now, until Minecraft's own connect screen takes over. */
 fun Dialogs.joining(host: String, world: String, status: () -> String, cancel: () -> Unit) {
-	val skin = Sample.friends.firstOrNull { it.name == host }?.skin ?: yourSkin()
+	val friend = Sample.friends.firstOrNull { it.name == host }
+	// Their skin may still be loading: the face asks each frame.
+	val skin = { friend?.skin ?: yourSkin() }
 	layers.openDialog {
 		dialog(
 			500,
-			who(Face({ skin }, 48, 10, null, Tok.panel), tr("tandem.joining", host), world, 500),
+			who(Face(skin, 48, 10, null, Tok.panel), tr("tandem.joining", host), world, 500),
 			Live(13, Weight.REGULAR, Tok.sec, status),
 			actions(500, Button(tr("tandem.cancel"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { cancel(); layers.closeDialog() }),
 		)
@@ -1135,12 +1143,14 @@ fun Dialogs.joining(host: String, world: String, status: () -> String, cancel: (
 
 /** [from] handed [world] to this player: their upload first, then the latest copy, then it opens here. */
 fun Dialogs.takingOver(from: String, world: String, status: () -> String, value: () -> Float, cancel: () -> Unit) {
-	val skin = Sample.friends.firstOrNull { it.name == from }?.skin ?: yourSkin()
+	val friend = Sample.friends.firstOrNull { it.name == from }
+	// Their skin may still be loading: the face asks each frame.
+	val skin = { friend?.skin ?: yourSkin() }
 	layers.openDialog {
 		val line = Label(status(), 13, Weight.REGULAR, Tok.muted)
 		val box = dialog(
 			500,
-			who(Face({ skin }, 48, 10, null, Tok.panel), tr("tandem.handed_to_you", from, world), tr("tandem.youll_host_it_it_opens_here_once", from), 500),
+			who(Face(skin, 48, 10, null, Tok.panel), tr("tandem.handed_to_you", from, world), tr("tandem.youll_host_it_it_opens_here_once", from), 500),
 			progress(false, 500, value, line, Label("", 13, Weight.REGULAR, Tok.muted)),
 			actions(500, Button(tr("tandem.dont_host"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { cancel(); layers.closeDialog() }),
 		)
@@ -1187,13 +1197,15 @@ internal var devCarryOn: (() -> Unit)? = null
 
 /** [from] handed [world] to this player: host it (the latest copy, then friends join), or leave it free for anyone. */
 fun Dialogs.handedToYou(from: String, world: String, host: () -> Unit, decline: () -> Unit) {
-	val skin = Sample.friends.firstOrNull { it.name == from }?.skin ?: yourSkin()
+	val friend = Sample.friends.firstOrNull { it.name == from }
+	// Their skin may still be loading: the face asks each frame.
+	val skin = { friend?.skin ?: yourSkin() }
 	devHostIt = host
 	devNotNow = { layers.closeDialog(); decline() }
 	layers.openDialog {
 		dialog(
 			500,
-			who(Face({ skin }, 48, 10, null, Tok.panel), tr("tandem.handed_hosting_to_you", from), tr("tandem.is_leaving_and_picked_you_to_host", from, world), 500),
+			who(Face(skin, 48, 10, null, Tok.panel), tr("tandem.handed_hosting_to_you", from), tr("tandem.is_leaving_and_picked_you_to_host", from, world), 500),
 			actions(500,
 				Button(tr("tandem.not_now"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog(); decline() },
 				Button(tr("tandem.host_it"), Kind.FILLED, Size.NORMAL, null, Tok.panel) { host() },
@@ -1216,11 +1228,13 @@ fun Dialogs.freeing(host: String, world: String, status: () -> String, cancel: (
 
 /** [from] handed [world] to [to]: this player joins [to] as soon as they're hosting. */
 fun Dialogs.following(from: String, to: String, world: String, status: () -> String, cancel: () -> Unit) {
-	val skin = Sample.friends.firstOrNull { it.name == to }?.skin ?: yourSkin()
+	val friend = Sample.friends.firstOrNull { it.name == to }
+	// Their skin may still be loading: the face asks each frame.
+	val skin = { friend?.skin ?: yourSkin() }
 	layers.openDialog {
 		dialog(
 			500,
-			who(Face({ skin }, 48, 10, null, Tok.panel), tr("tandem.is_taking_over", to, world), tr("tandem.handed_the_world_to_youll_join_by", from, to, to), 500),
+			who(Face(skin, 48, 10, null, Tok.panel), tr("tandem.is_taking_over", to, world), tr("tandem.handed_the_world_to_youll_join_by", from, to, to), 500),
 			Live(13, Weight.REGULAR, Tok.sec, status),
 			actions(500, Button(tr("tandem.stop_waiting"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { cancel(); layers.closeDialog() }),
 		)
