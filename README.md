@@ -1,21 +1,37 @@
 # Tandem
 
-Play Minecraft together without renting a server, and keep a world synced so anyone in the group can host it.
+Play Minecraft with friends without renting a server. Tandem is a Fabric mod for Minecraft: Java Edition.
 
-Prototype: Fabric 1.21.1 only. Ports to the other loaders and versions come once this feels complete.
+Tandem is in beta, on Fabric 1.21.1 only.
 
-| Folder | What it is |
-| --- | --- |
-| `core/` | Plain Java 8, no Minecraft: world manifests, diffs, the crash-safe world swap. Shared by every port |
-| `fabric/` | The Fabric 1.21.1 mod: the title screen button and the Tandem screen |
+## Features
 
+- **Friends join in a few clicks.** No servers, no port forwarding, no hassle.
+- **Hand off hosting.** Pass the world to a friend and they carry on hosting it.
+- **Syncs with [Atlas](https://keplersync.app).** Same account and friends, and Atlas keeps everyone's mods the same.
+
+## Download
+
+Get the beta in the [KeplerSync Discord](https://discord.gg/mXJnFe65Eq). It needs Fabric API.
+
+## Building from source
+
+You need JDK 21.
+
+```powershell
+./gradlew build              # the mod jar, in fabric/build/libs
+./gradlew :fabric:runClient  # Minecraft with the mod
 ```
-./gradlew :core:test        tests for core
-./gradlew build             the mod jar, in fabric/build/libs
-./gradlew :fabric:runClient Minecraft with the mod, for trying it out
-```
 
-Builds need JDK 21. Loom is pinned to 1.17 because 1.18 and later need Java 25 to run Gradle.
+## Show your support
+
+Please consider supporting the project by starring the repository, or by donating via Ko-fi!
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/O4O113VGTE)
+
+## Support
+
+If you need help or have any questions, open a [GitHub issue](../../issues) or email <support@keplersync.app>.
 
 ## License
 
