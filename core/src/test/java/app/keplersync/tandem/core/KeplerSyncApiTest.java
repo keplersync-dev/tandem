@@ -1,6 +1,7 @@
 package app.keplersync.tandem.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -55,7 +56,7 @@ class KeplerSyncApiTest {
 			reply(ex, 200, "[{\"user\":{\"id\":\"u2\",\"displayName\":\"Sam\"},\"presence\":{\"state\":\"playing\",\"instanceName\":\"Sky Base\"}}]");
 		});
 		server.createContext("/v1/friends/requests", ex -> reply(ex, 404,
-				"{\"error\":{\"code\":\"not_found\",\"message\":\"Nobody has that friend code\"}}"));
+				"{\"error\":{\"code\":\"not_found\",\"message\":\"No one called nope is on KeplerSync. Check the spelling.\"}}"));
 		server.start();
 		api = new KeplerSyncApi("http://127.0.0.1:" + server.getAddress().getPort() + "/", new KeplerSyncApi.Joiner() {
 			@Override
@@ -126,9 +127,17 @@ class KeplerSyncApiTest {
 	}
 
 	@Test
+	void friendLinksGiveTheirCodeAndAnythingElseIsAName() {
+		assertEquals("7KQ29XMB", KeplerSyncApi.linkCode("https://keplersync.app/f/7KQ2-9XMB"));
+		assertEquals("7KQ29XMB", KeplerSyncApi.linkCode("atlas://friend/7KQ29XMB/"));
+		assertNull(KeplerSyncApi.linkCode("7KQ29XMB"), "a bare code could be a name");
+		assertNull(KeplerSyncApi.linkCode("Notch"));
+	}
+
+	@Test
 	void theServersMessageReachesThePlayer() {
-		KeplerSyncApi.Refused e = assertThrows(KeplerSyncApi.Refused.class, () -> api.addFriend("nope-nope"));
-		assertEquals("Nobody has that friend code", e.getMessage());
+		KeplerSyncApi.Refused e = assertThrows(KeplerSyncApi.Refused.class, () -> api.addFriend("nope"));
+		assertEquals("No one called nope is on KeplerSync. Check the spelling.", e.getMessage());
 		assertEquals("not_found", e.code);
 		assertTrue(!e.outdated());
 	}

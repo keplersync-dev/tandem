@@ -113,6 +113,12 @@ final class Live implements WebSocket.Listener {
 			case "world.handoff":
 				account.handoff(data.get("worldId").getAsString(), data.get("fromId").getAsString(), data.get("toId").getAsString());
 				break;
+			case "host.requested":
+				account.hostRequests.add(new Account.HostAsk(data.get("worldId").getAsString(), data.get("fromId").getAsString()));
+				break;
+			case "host.declined":
+				account.hostDeclines.add(new Account.HostAsk(data.get("worldId").getAsString(), data.get("byId").getAsString()));
+				break;
 			case "play.kick":
 				app.keplersync.tandem.fabric.play.Hosting.kickedByOwner(data.get("sessionId").getAsString(), data.get("userId").getAsString());
 				break;

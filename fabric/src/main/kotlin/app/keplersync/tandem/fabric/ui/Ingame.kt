@@ -173,6 +173,38 @@ object Ingame {
 			val inIt = mc.level != null && Joining.current?.info?.sessionId == r.sessionId
 			if (inIt || account?.invites?.none { it.sessionId == r.sessionId } == true) { realInvite = null; invite = null }
 		}
+		// In a friend's synced world: remember it. Thrown out of it (Minecraft's Connection lost, not this player's own
+		// Disconnect) with no hand-off coming: Play asks KeplerSync whether the host's game stopped (B2).
+		val joined = Joining.current?.info
+		if (mc.level != null && mc.singleplayerServer == null && joined?.worldId != null) {
+			val names = account?.friends.orEmpty().associate { it.user.minecraftUsername to it.user.displayName }
+			val others = mc.connection?.onlinePlayers.orEmpty().map { it.profile.name }
+				.filter { it != mc.user.name && it != joined.host.minecraftUsername }.map { names[it] ?: it }
+			guestIn = joined to others
+		} else if (mc.level == null && guestIn != null) {
+			val (info, others) = guestIn!!
+			guestIn = null
+			if (handoff == null && mc.screen is DisconnectedScreen) {
+				mc.setScreen(PlayScreen().also { it.afterOpen { s -> s.hostStopped(info.worldId, info.host.id, info.host.displayName, others) } })
+			}
+		}
+		// A friend's download is slow and they ask this player to host: in a world, a notice; out of one, the question.
+		account?.hostRequests?.poll()?.let { r ->
+			hostAsk = r
+			if (mc.level != null) notice(tr("tandem.asks_you_to_host", nameOf(account, r.userId), worldName(r.worldId)), tr("tandem.answer_when_youre_out_of_this_world"), "host")
+		}
+		hostAsk?.let { r ->
+			if (mc.level == null && (mc.screen == null || mc.screen is TitleScreen)) {
+				hostAsk = null
+				val from = Sample.friends.firstOrNull { it.userId == r.userId } ?: Person(nameOf(account, r.userId), 0, true, "")
+				mc.setScreen(DialogScreen { d ->
+					d.askedYouToHost(from, worldName(r.worldId), host = { mc.setScreen(PlayScreen().also { it.afterOpen { s -> s.hostFor(r.worldId) } }) }) {
+						account?.run { api -> api.declineHost(r.worldId, r.userId) }
+						mc.setScreen(TitleScreen())
+					}
+				})
+			}
+		}
 		account?.handoffs?.poll()?.let { h ->
 			val host = Joining.current?.info?.host
 			if (mc.level != null && mc.singleplayerServer == null && host?.id == h.fromId) {
@@ -244,9 +276,20 @@ object Ingame {
 		return true
 	}
 
+	/** A friend's request to host a world, kept until this player is out of a world to answer it. */
+	private var hostAsk: KsAccount.HostAsk? = null
+
+	private fun nameOf(account: KsAccount?, userId: String) =
+		account?.friends?.firstOrNull { it.user.id == userId }?.user?.displayName ?: tr("tandem.your_friend")
+
+	private fun worldName(worldId: String) = Sample.worlds.firstOrNull { it.cloudId == worldId }?.name ?: tr("tandem.a_synced_world")
+
+	/** The friend's synced world this game is in, and who else was in it: for when the host's game goes away. */
+	private var guestIn: Pair<KeplerSyncApi.JoinInfo, List<String>>? = null
+
 	private fun stoppedScreen() = DialogScreen { d ->
 		val sam = Sample.person(tr("tandem.sam"))
-		d.stopped(sam, tr("tandem.create_nights"), listOf(tr("tandem.noor")), title = {
+		d.stopped(sam, tr("tandem.create_nights"), listOf(tr("tandem.noor")), tr("tandem.22_min_ago"), title = {
 			val mc = Minecraft.getInstance()
 			mc.level?.disconnect(); mc.disconnect(TitleScreen())
 		}) { d.getLatest(Sample.world(tr("tandem.create_nights"))) }

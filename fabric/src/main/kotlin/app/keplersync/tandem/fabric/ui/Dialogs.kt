@@ -118,7 +118,7 @@ class Dialogs(val layers: Layers, val changed: () -> Unit) {
 
 	/** Waiting for a friend's upload: the world opens by itself when it's done (always the latest copy). */
 	fun waitFor(w: World) {
-		if (Sample.alexQuit) return waitQuit(w)
+		if (Sample.alexQuit) return waitQuit(w, w.pct / 100f, tr("tandem.9_40_pm_tomorrow"), tr("tandem.25_min_before_they_quit"))
 		val run = Timed(w.pct / 100f, 6f)
 		val friend = Sample.person(w.who)
 		layers.openDialog {

@@ -215,7 +215,7 @@ object Shots {
 		step { (it.screen as PlayScreen).dev("rebuild") }
 		sleep(10)
 		step { shot(it, "settings-bottom-rebuilt") }
-		for (d in listOf("sync", "plans", "r2", "report", "code", "add", "full", "stop", "remove", "slow", "disk", "waitquit", "unreachable")) {
+		for (d in listOf("sync", "plans", "r2", "report", "code", "add", "full", "stop", "remove", "slow", "disk", "waitquit", "handed", "freeing", "asking", "askedyou", "unreachable")) {
 			play(d)
 			step { shot(it, "d3-$d") }
 		}
@@ -401,7 +401,7 @@ object Shots {
 	 */
 	/**
 	 * Dev only (`runFriendB`, `runFriendA`, then both together): two games against
-	 * a local KeplerSync. First Sam signs in and leaves his friend code in the dev cloud folder, then Alex sends him a
+	 * a local KeplerSync. First Sam signs in and leaves his Minecraft name in the dev cloud folder, then Alex sends him a
 	 * request. Then Sam accepts it with the real button and opens his world; Alex starts, and Sam gets the "came
 	 * online" toast; Alex opens Shared Base and Sam's list says so. Steps meet through marker files, and each logs
 	 * "Friend check, <name>: OK …".
@@ -526,12 +526,12 @@ object Shots {
 			size(1920, 1080, 3)
 			when {
 				me == "Sam" && !friends && !asked -> step {
-					java.nio.file.Files.writeString(marks.resolve("Sam.code"), a.me.friendCode)
-					check("left his friend code", true)
+					java.nio.file.Files.writeString(marks.resolve("Sam.name"), a.me.username)
+					check("left his Minecraft name", true)
 				}
 				me == "Alex" && !friends -> step {
-					val code = java.nio.file.Files.readString(marks.resolve("Sam.code"))
-					a.run { api -> api.addFriend(code) }.join()
+					val name = java.nio.file.Files.readString(marks.resolve("Sam.name"))
+					a.run { api -> api.addFriend(name) }.join()
 					check("sent Sam a friend request", true)
 				}
 				// Already friends: what changes behind an open dialog shows once it closes.
@@ -866,8 +866,11 @@ object Shots {
 				step { check("joined Alex's synced world from Play", it.singleplayerServer == null && others() > 0) }
 				waitFor(1200) { marked("alex-made-sam-op") && it.player!!.hasPermissions(3) }
 				step { check("became an operator", it.player!!.hasPermissions(3)); mark("sam-is-op") }
-				// Alex hands Hand Base over and leaves: Sam's game takes over by itself.
+				// Alex hands Hand Base over and leaves: Sam's game asks him first, and he says Host it.
 				waitFor(2400) { (it.screen as? PlayScreen)?.devBusy() == true }
+				sleep(10)
+				step { shot(it, "hand-b-asked") }
+				step { app.keplersync.tandem.fabric.ui.devHostIt!!() }
 				sleep(10)
 				step { shot(it, "hand-b-takeover") }
 				waitFor(4800) { it.singleplayerServer != null && it.player != null && it.screen == null }
@@ -895,6 +898,194 @@ object Shots {
 				waitFor(600) { hand()?.let { w -> w.state == WorldState.READY && w.who == "you" } == true }
 				step { check("then says he played it last", hand()?.let { w -> w.state == WorldState.READY && w.who == "you" } == true) }
 				step { shot(it, "hand-b-uploaded") }
+			}
+			step { it.stop() }
+		}
+		ClientTickEvents.END_CLIENT_TICK.register(::tick)
+	}
+
+	/**
+	 * Hosting for each other (rescuecheck): Alex syncs Rescue Base and leaves; Sam's download is slow, so he asks Alex
+	 * to host, Alex says Host it and Sam joins him; Alex hands the world to Sam and leaves, and Sam says Not now, which
+	 * leaves it free; Sam hosts it and quits while his upload is held midway (his game stops), and Alex, waiting to
+	 * play, is told Sam quit before it finished. Alex owns Rescue Base, so he stops waiting and plays from the last upload.
+	 */
+	fun rescueCheck() {
+		val a = KsAccount.get() ?: error("The rescue check needs -Dtandem.server")
+		val marks = java.nio.file.Paths.get(System.getProperty("tandem.checkdir") ?: error("The rescue check needs -Dtandem.checkdir"))
+		java.nio.file.Files.createDirectories(marks)
+		fun mark(name: String) = java.nio.file.Files.writeString(marks.resolve(name), "")
+		fun marked(name: String) = java.nio.file.Files.exists(marks.resolve(name))
+		steps += { a.signedIn() && a.friends.isNotEmpty() }
+		size(1920, 1080, 3)
+		step { it.options.pauseOnLostFocus = false }
+		step { mc ->
+			val me = a.me.displayName
+			val d = WorldSync.get()!!
+			fun check(what: String, ok: Boolean) = TandemClient.LOG.info("Rescue check, {}: {} {}", me, if (ok) "OK" else "FAILED", what)
+			fun others() = mc.connection?.onlinePlayers?.count { it.profile.id != mc.user.profileId } ?: 0
+			fun server() = mc.singleplayerServer!!
+			fun base() = Sample.worlds.firstOrNull { w -> w.name == "Rescue Base" && w.cloudId != null }
+			fun hosting() = mc.singleplayerServer != null && app.keplersync.tandem.fabric.play.Hosting.get()?.worldId != null
+			fun waitFor(ticks: Int, ok: (Minecraft) -> Boolean) {
+				var n = 0
+				steps += { ok(it) || ++n > ticks }
+			}
+			fun leave() {
+				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
+				steps += { it.screen is TitleScreen }
+			}
+			if (me == "Alex") {
+				step { openWorld(it, "tandem-rescue-a", "Rescue Base", GameType.CREATIVE) }
+				steps += { it.player != null && it.screen == null }
+				var first: WorldSync.Transfer? = null
+				step { first = d.firstUploadOpen(server(), "Rescue Base", ids("Sam")) }
+				waitFor(2400) { hosting() || first?.future?.isCompletedExceptionally == true }
+				step { check("synced Rescue Base", hosting()) }
+				leave()
+				waitFor(2400) { d.background?.done() == true }
+				step { mark("alex-left") }
+				// Sam's download is slow: he asks Alex to host, and Alex says Host it.
+				waitFor(4800) { app.keplersync.tandem.fabric.ui.devAskedHost != null }
+				step { check("Sam's request to host reached Alex", app.keplersync.tandem.fabric.ui.devAskedHost != null) }
+				sleep(10)
+				step { shot(it, "rescue-a-asked") }
+				step { app.keplersync.tandem.fabric.ui.devAskedHost!!(); app.keplersync.tandem.fabric.ui.devAskedHost = null }
+				waitFor(2400) { hosting() }
+				step { check("hosted Rescue Base for Sam", hosting()) }
+				waitFor(2400) { others() > 0 }
+				step { check("Sam joined him", others() > 0) }
+				// He hands it to Sam and leaves; Sam says Not now.
+				steps += { marked("sam-in") }
+				step {
+					val rules = app.keplersync.tandem.fabric.play.WorldRules.of(server())!!
+					a.api.handoff(rules.worldId, rules.userId(server().playerList.getPlayerByName("Sam")!!.uuid))
+				}
+				leave()
+				waitFor(2400) { d.background?.done() == true }
+				step { mark("alex-handed") }
+				steps += { marked("sam-said-no") }
+				// Sam hosts it and quits midway through his upload: Alex, waiting to play, is told why, and as the
+				// owner plays from the last upload instead.
+				steps += { marked("sam-uploading") }
+				play()
+				waitFor(600) { base()?.state == WorldState.SAVING }
+				step { click(it, target(it, "button-Rescue Base")) }
+				waitFor(4800) { app.keplersync.tandem.fabric.ui.devQuitShown }
+				step { check("told Sam quit before his upload finished", app.keplersync.tandem.fabric.ui.devQuitShown) }
+				step { check("the owner can play from the last upload", app.keplersync.tandem.fabric.ui.devCarryOn != null) }
+				sleep(10)
+				step { shot(it, "rescue-a-quit") }
+				step { app.keplersync.tandem.fabric.ui.devCarryOn!!() }
+				sleep(10)
+				step { shot(it, "rescue-a-carry-on") }
+				step { app.keplersync.tandem.fabric.ui.devCarryOn!!(); app.keplersync.tandem.fabric.ui.devCarryOn = null }
+				waitFor(2400) { hosting() }
+				step { check("hosting from the last upload", hosting()) }
+			} else {
+				steps += { marked("alex-left") }
+				// A held download counts as slow: Ask Alex to host.
+				step { System.setProperty("tandem.downloadPauseMs", "120000") }
+				play()
+				waitFor(600) { base() != null }
+				step { click(it, target(it, "button-Rescue Base")) }
+				waitFor(1200) { app.keplersync.tandem.fabric.ui.devAsk != null }
+				step { check("a slow download offers to ask Alex to host", app.keplersync.tandem.fabric.ui.devAsk != null) }
+				sleep(10)
+				step { shot(it, "rescue-b-slow") }
+				step { System.clearProperty("tandem.downloadPauseMs"); app.keplersync.tandem.fabric.ui.devAsk!!(); app.keplersync.tandem.fabric.ui.devAsk = null }
+				sleep(10)
+				step { shot(it, "rescue-b-waiting") }
+				waitFor(4800) { it.singleplayerServer == null && it.player != null && others() > 0 }
+				step { check("joined Alex once he hosted", it.singleplayerServer == null && others() > 0); mark("sam-in") }
+				// Alex hands Rescue Base over and leaves: Sam is asked, and says Not now.
+				waitFor(4800) { app.keplersync.tandem.fabric.ui.devNotNow != null }
+				step { check("a hand-off asks first", app.keplersync.tandem.fabric.ui.devNotNow != null) }
+				sleep(10)
+				step { shot(it, "rescue-b-handed") }
+				step { app.keplersync.tandem.fabric.ui.devNotNow!!(); app.keplersync.tandem.fabric.ui.devNotNow = null }
+				steps += { marked("alex-handed") }
+				var free = false
+				waitFor(1200) {
+					val id = base()?.cloudId
+					if (id != null) free = runCatching { d.cloud.lease(id) }.getOrNull() == null
+					free
+				}
+				step { check("saying no leaves the world free", free); mark("sam-said-no") }
+				// Free: he hosts it, then quits while his upload is held (as if the game closed).
+				play()
+				waitFor(600) { base() != null }
+				step { click(it, target(it, "button-Rescue Base")) }
+				waitFor(2400) { hosting() }
+				step { check("hosted Rescue Base once it was free", hosting()) }
+				sleep(100)
+				step { System.setProperty("tandem.uploadPauseMs", "600000") }
+				leave()
+				sleep(200)
+				step { mark("sam-uploading") }
+				sleep(40)
+				step { TandemClient.LOG.info("Rescue check, Sam: stopping the game midway through the upload"); Runtime.getRuntime().halt(0) }
+			}
+			step { it.stop() }
+		}
+		ClientTickEvents.END_CLIENT_TICK.register(::tick)
+	}
+
+	/**
+	 * A host's game stopping (crashcheck): Sam syncs and hosts Crash Base, Alex joins from Play, Sam's game stops
+	 * without a word. Alex is asked to take over hosting, and does once KeplerSync lets the world go.
+	 */
+	fun crashCheck() {
+		val a = KsAccount.get() ?: error("The crash check needs -Dtandem.server")
+		val marks = java.nio.file.Paths.get(System.getProperty("tandem.checkdir") ?: error("The crash check needs -Dtandem.checkdir"))
+		java.nio.file.Files.createDirectories(marks)
+		fun mark(name: String) = java.nio.file.Files.writeString(marks.resolve(name), "")
+		fun marked(name: String) = java.nio.file.Files.exists(marks.resolve(name))
+		steps += { a.signedIn() && a.friends.isNotEmpty() }
+		size(1920, 1080, 3)
+		step { it.options.pauseOnLostFocus = false }
+		step { mc ->
+			val me = a.me.displayName
+			val d = WorldSync.get()!!
+			fun check(what: String, ok: Boolean) = TandemClient.LOG.info("Crash check, {}: {} {}", me, if (ok) "OK" else "FAILED", what)
+			fun others() = mc.connection?.onlinePlayers?.count { it.profile.id != mc.user.profileId } ?: 0
+			fun server() = mc.singleplayerServer!!
+			fun hosting() = mc.singleplayerServer != null && app.keplersync.tandem.fabric.play.Hosting.get()?.worldId != null
+			fun waitFor(ticks: Int, ok: (Minecraft) -> Boolean) {
+				var n = 0
+				steps += { ok(it) || ++n > ticks }
+			}
+			if (me == "Sam") {
+				step { openWorld(it, "tandem-crash-b", "Crash Base", GameType.CREATIVE) }
+				steps += { it.player != null && it.screen == null }
+				var first: WorldSync.Transfer? = null
+				step { first = d.firstUploadOpen(server(), "Crash Base", ids("Alex")) }
+				waitFor(2400) { hosting() || first?.future?.isCompletedExceptionally == true }
+				step { check("synced and hosts Crash Base", hosting()); mark("sam-hosting") }
+				waitFor(4800) { others() > 0 }
+				step { check("Alex joined", others() > 0) }
+				sleep(200)
+				step { TandemClient.LOG.info("Crash check, Sam: stopping the game"); Runtime.getRuntime().halt(0) }
+			} else {
+				steps += { marked("sam-hosting") }
+				play()
+				waitFor(1200) { Sample.worlds.any { w -> w.name == "Crash Base" && w.state == WorldState.HOSTED } }
+				step { click(it, target(it, "button-Crash Base")) }
+				waitFor(2400) { it.singleplayerServer == null && it.player != null && others() > 0 }
+				step { check("joined Sam's game", it.singleplayerServer == null && others() > 0) }
+				// Sam's game stops: the connection drops, and once KeplerSync says his game stopped answering, Alex is asked.
+				waitFor(6000) { app.keplersync.tandem.fabric.ui.devTakeOver != null }
+				step { check("asked to take over once Sam's game stopped", app.keplersync.tandem.fabric.ui.devTakeOver != null) }
+				sleep(10)
+				step { shot(it, "crash-a-stopped") }
+				step { app.keplersync.tandem.fabric.ui.devTakeOver!!(); app.keplersync.tandem.fabric.ui.devTakeOver = null }
+				sleep(10)
+				step { shot(it, "crash-a-taking-over") }
+				waitFor(6000) { hosting() }
+				step { check("took over Crash Base and hosts it", hosting()) }
+				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
+				steps += { it.screen is TitleScreen }
+				waitFor(2400) { d.background?.done() == true }
 			}
 			step { it.stop() }
 		}
@@ -1463,7 +1654,7 @@ object Shots {
 			fun from(name: String, direction: String) = ask { it.requests() }.getOrNull().orEmpty().firstOrNull { r -> r.direction == direction && r.user.displayName == name }
 			if (me == "Riley") {
 				var alex: String? = null
-				step { java.nio.file.Files.writeString(marks.resolve("Riley.code"), a.me.friendCode); mark("riley-ready") }
+				step { java.nio.file.Files.writeString(marks.resolve("Riley.name"), a.me.username); mark("riley-ready") }
 				steps += { marked("alex-asked") }
 				step {
 					alex = from("Alex", "incoming")?.user?.id
@@ -1489,7 +1680,7 @@ object Shots {
 				var code = ""
 				steps += { marked("riley-ready") }
 				step {
-					code = java.nio.file.Files.readString(marks.resolve("Riley.code"))
+					code = java.nio.file.Files.readString(marks.resolve("Riley.name"))
 					check("sent Riley a request", ask { it.addFriend(code) }.isSuccess)
 					mark("alex-asked")
 				}
@@ -1673,7 +1864,7 @@ object Shots {
 	/**
 	 * Dev only (`gradlew :fabric:runShootA -Ptandem.shoot="..."`, dev/checks.sh mistakes): one game against the local
 	 * KeplerSync, a few steps, and real screenshots of what it shows. Steps, separated by `;`, with `+` for a space:
-	 * size:W:H:GUI, title, play, play:<dev>, click:<target>, esc, wait:<ticks>, signed (until signed in, at most a
+	 * size:W:H:GUI, title, play, play:<dev>, click:<target>, esc, tab, type:<text>, wait:<ticks>, signed (until signed in, at most a
 	 * minute), listed:<world> (until the world list has it as a synced world), shot:<name>. The game quits at the end.
 	 */
 	fun shoot() {
@@ -1685,6 +1876,8 @@ object Shots {
 				"play" -> play(arg.ifEmpty { null })
 				"click" -> step { click(it, target(it, arg)) }
 				"esc" -> keys(GLFW.GLFW_KEY_ESCAPE)
+				"tab" -> keys(GLFW.GLFW_KEY_TAB)
+				"type" -> step { mc -> arg.forEach { ch -> mc.screen?.charTyped(ch, 0) } }
 				"wait" -> sleep(arg.toInt())
 				"signed" -> { var n = 0; steps += { KsAccount.get()?.signedIn() == true || ++n > 1200 } }
 				"listed" -> { var n = 0; steps += { Sample.worlds.any { w -> w.name == arg && w.cloudId != null } || ++n > 1200 } }

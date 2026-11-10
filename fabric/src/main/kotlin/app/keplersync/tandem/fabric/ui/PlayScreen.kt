@@ -407,7 +407,7 @@ class PlayScreen : TandemScreen() {
 		IconButton("close", 34, fill) { if (p.userId != null) RealFriends.decline(layers, ::build, p) else { Sample.requests.remove(p); build() } }.constrain { x = 13.fromEnd; y = CenterConstraint() } childOf card
 		// This line could wrap; it gets what's left of the 289 px card after border, padding, face, buttons and gaps.
 		val room = (289 - 2 - 24 - 36 - 10 - 10 - 10 - 34).tp - accept.getWidth()
-		val text = twoLines(p.name, wrapped(p.presence, 13, Weight.REGULAR, Tok.muted, room)) { it.fitBefore(accept, 10) }
+		val text = twoLines(p.name, wrapped(p.presence, 13, Weight.REGULAR, Tok.muted, room), p.handle) { it.fitBefore(accept, 10) }
 			.constrain { x = (13 + 36 + 10).at; y = CenterConstraint() } childOf card
 		card.constrain { height = basicHeightConstraint { max(36.tp, text.getHeight()) + 26.tp } }
 		return card
@@ -419,7 +419,7 @@ class PlayScreen : TandemScreen() {
 		}
 		val face = Face({ p.skin }, 36, 8, if (p.atlasOnly) null else p.online, Tok.rail).constrain { x = 11.at; y = CenterConstraint() } childOf row
 		val meta = if (p.hosting) Label(p.presence, 13, Weight.MEDIUM, Tok.violetHi) else Label(p.presence, 13, Weight.REGULAR, Tok.muted)
-		twoLines(p.name, meta) { it.fitWithin(row, 11 + 16 + 10) }.constrain { x = (11 + 36 + 12).at; y = CenterConstraint() } childOf row
+		twoLines(p.name, meta, p.handle) { it.fitWithin(row, 11 + 16 + 10) }.constrain { x = (11 + 36 + 12).at; y = CenterConstraint() } childOf row
 		Icon("chev", 16, Tok.muted).constrain { x = 11.fromEnd; y = CenterConstraint() } childOf row
 		row.onMouseEnter { row.fill = Tok.raise; row.border = Tok.line; face.under = Tok.raise }
 		row.onMouseLeave { row.fill = Tok.rail; row.border = null; face.under = Tok.rail }
@@ -471,17 +471,21 @@ class PlayScreen : TandemScreen() {
 
 	/** A name over a second line. */
 	/** A name over a line about them; [fit] says where both end in an ellipsis. */
-	private fun twoLines(name: String, meta: UIComponent, fit: ((Label) -> Unit)? = null): UIComponent {
+	/** A name over a line about them. [handle] is their @username, faint after the name: it gives way first. */
+	private fun twoLines(name: String, meta: UIComponent, handle: String? = null, fit: ((Label) -> Unit)? = null): UIComponent {
 		val c = UIContainer()
-		val n = Label(name, 15, Weight.SEMIBOLD) childOf c
+		val n = Label(name, 15, Weight.SEMIBOLD)
+		val h = handle?.let { Label("@$it", 13, Weight.REGULAR, Tok.muted) }
+		val top = (if (h != null) row(6, n, h) else n) childOf c
 		meta.constrain { y = SiblingConstraint(3.tp) } childOf c
 		if (fit != null) {
 			fit(n)
+			h?.let(fit)
 			(meta as? Label)?.let(fit)
 		}
 		c.constrain {
-			width = basicWidthConstraint { max(n.getWidth(), meta.getWidth()) }
-			height = basicHeightConstraint { n.getHeight() + 3.tp + meta.getHeight() }
+			width = basicWidthConstraint { max(top.getWidth(), meta.getWidth()) }
+			height = basicHeightConstraint { top.getHeight() + 3.tp + meta.getHeight() }
 		}
 		return c
 	}
@@ -491,6 +495,9 @@ class PlayScreen : TandemScreen() {
 
 	internal fun devDialogs() = dialogs
 
+	/** A sample friend by name, even when the list is empty (KeplerSync unreachable). */
+	private fun someone(name: String, skin: Int) = Sample.friends.firstOrNull { it.name == name } ?: Person(name, skin, true, "")
+
 	/** A synced world Minecraft couldn't load: offer the version before it. */
 	fun wontLoad(w: World, level: String) = real.wontLoad(w, level)
 
@@ -498,6 +505,12 @@ class PlayScreen : TandemScreen() {
 	fun handoff(worldId: String, from: String, to: Pair<String, String>?) {
 		if (to == null) real.takeOver(worldId, from) else real.follow(worldId, from, to.first, to.second)
 	}
+
+	/** A friend asked this player to host a synced world: Play it. */
+	fun hostFor(worldId: String) = real.hostFor(worldId)
+
+	/** Thrown out of a friend's synced world: if KeplerSync says their game stopped, offer to take over (B2). */
+	fun hostStopped(worldId: String, hostId: String, hostName: String, others: List<String>) = real.hostStopped(worldId, hostId, hostName, others)
 
 	/** Opens on Settings, as from Mod Menu's Settings button. */
 	fun showSettings() {
@@ -532,6 +545,11 @@ class PlayScreen : TandemScreen() {
 			"slow" -> { Sample.slow = true; dialogs.getLatest(world(tr("tandem.sky_base"))); Sample.slow = false }
 			"disk" -> { Sample.diskFull = true; dialogs.getLatest(world(tr("tandem.sky_base"))); Sample.diskFull = false }
 			"waitquit" -> { Sample.alexQuit = true; dialogs.waitFor(world(tr("tandem.hardcore_attempt_4"))); Sample.alexQuit = false }
+			"handed" -> dialogs.handedToYou(tr("tandem.sam"), tr("tandem.create_nights"), {}, {})
+			"stopped" -> dialogs.stopped(someone(tr("tandem.sam"), 0), tr("tandem.create_nights"), listOf(tr("tandem.noor")), tr("tandem.22_min_ago"), {}, {})
+			"freeing" -> dialogs.freeing(tr("tandem.sam"), tr("tandem.create_nights"), { tr("tandem.free_in_about_s", 42) }) {}
+			"asking" -> dialogs.askedToHost(someone(tr("tandem.sam"), 0), tr("tandem.sky_base"), { tr("tandem.waiting_for_to_open_it", tr("tandem.sam")) }) {}
+			"askedyou" -> dialogs.askedYouToHost(someone("Alex", 4), tr("tandem.sky_base"), {}, {})
 			"unreachable" -> { Sample.reachable = false; build(); Sample.reachable = true }
 			// Real mod ids, so their icons come from the mods installed here and from Modrinth.
 			"mods-real" -> dialogs.mods(World("big", WorldState.OTHER, world(tr("tandem.sky_base")).bands, mods = Mods(

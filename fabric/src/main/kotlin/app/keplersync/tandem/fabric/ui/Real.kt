@@ -12,6 +12,7 @@ import app.keplersync.tandem.fabric.play.Joining
 import app.keplersync.tandem.fabric.sync.WorldSync
 import gg.essential.elementa.dsl.childOf
 import net.minecraft.client.Minecraft
+import net.minecraft.client.gui.screens.TitleScreen
 import net.minecraft.world.level.storage.LevelStorageException
 import net.minecraft.world.level.storage.LevelResource
 import net.minecraft.world.level.storage.LevelSummary
@@ -278,6 +279,15 @@ object RealWorlds {
 		return if (missing.isEmpty() && different.isEmpty() && extra.isEmpty()) null else Mods(host, missing, different, extra)
 	}
 
+	/** A time within the next day or so, as people say it: "9:40 pm", "9:40 pm tomorrow". */
+	fun at(millis: Long): String {
+		val zone = java.time.ZoneId.systemDefault()
+		val then = java.time.Instant.ofEpochMilli(millis).atZone(zone)
+		val time = then.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH)).lowercase()
+		val days = java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(zone), then.toLocalDate())
+		return if (days <= 0L) time else if (days == 1L) tr("tandem.s_tomorrow", time) else then.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH)) + ", " + time
+	}
+
 	fun ago(millis: Long): String {
 		val mins = (System.currentTimeMillis() - millis) / 60_000
 		return when {
@@ -477,17 +487,58 @@ class RealPlay(private val dialogs: Dialogs, private val changed: () -> Unit) {
 
 	private fun get(w: World, level: String) {
 		val t = d.getLatest(level, w.cloudId!!, w.name)
-		dialogs.gettingLatest(w, t) { t.progress.cancel(); release(w) }
+		var asked = false
+		// Someone in the world who's online, to host instead if this download turns out slow (A2).
+		val helper = Sample.friends.firstOrNull { it.online && it.userId != null && it.userId in w.userIds.values }
+		dialogs.gettingLatest(w, t, helper, { h -> asked = true; t.progress.cancel(); askToHost(w, h) }) { t.progress.cancel(); release(w) }
 		later(t.future, { e ->
+			if (asked) return@later
 			layers.closeDialog()
 			release(w)
 			if (e is Sync.NotEnoughSpace) dialogs.noSpace(w, e.needed, e.free, WorldSync.saves().root?.toString()?.trimEnd('\\', '/') ?: tr("tandem.this_pc_2")) { play(w) }
 			else failed(e)
 		}) {
+			if (asked) return@later
 			layers.closeDialog()
 			open(level)
 		}
 	}
+
+	/**
+	 * This player's download was slow: the world is let go (what's downloaded stays for next time), [friend] is asked
+	 * to host it, and this player joins them once they are. They can say they can't, and the wait ends.
+	 */
+	private fun askToHost(w: World, friend: Person) {
+		release(w)
+		val a = KsAccount.get() ?: return
+		var status = tr("tandem.asking", friend.name)
+		var stopped = false
+		dialogs.askedToHost(friend, w.name, { status }) { stopped = true }
+		later(d.async { a.api.requestHost(w.cloudId!!, friend.userId!!) }) { status = tr("tandem.waiting_for_to_open_it", friend.name) }
+		val until = System.currentTimeMillis() + 15 * 60_000
+		fun poll() {
+			later(ask {
+				val l = d.cloud.lease(w.cloudId!!)
+				if (l != null && l.heldBy(friend.userId!!) && l.state == Cloud.HOSTING) runCatching { a.api.playForWorld(w.cloudId!!) }.getOrNull() else null
+			}) { s ->
+				if (stopped) return@later
+				if (s != null) return@later RealJoin.join(s.id, friend.name, w.name, dialogs)
+				if (a.hostDeclines.removeIf { it.worldId == w.cloudId && it.userId == friend.userId }) {
+					layers.closeDialog()
+					return@later layers.toast(tr("tandem.cant_host_right_now", friend.name), tr("tandem.play_it_to_get_the_latest_copy"), "warn")
+				}
+				if (System.currentTimeMillis() > until) {
+					layers.closeDialog()
+					return@later layers.toast(tr("tandem.isnt_hosting_yet", friend.name, w.name), tr("tandem.join_them_from_play_once_they_are"), "warn")
+				}
+				soon(::poll)
+			}
+		}
+		poll()
+	}
+
+	/** [from] asked this player to host [worldId]: Play it, as from the list; they join once it's open. */
+	fun hostFor(worldId: String) = world(worldId) { w -> play(w) }
 
 	/**
 	 * Join whoever is hosting [w]: members need no invite. Nobody hosting after all (their game closed and the lease ran
@@ -516,15 +567,20 @@ class RealPlay(private val dialogs: Dialogs, private val changed: () -> Unit) {
 		}
 	}
 
-	/**
-	 * [from] handed [worldId] to this player: their upload, then KeplerSync gives the lease here, then the
-	 * latest copy and Play as usual. Everyone else in the world joins once it's open here.
-	 */
+	/** [from] handed [worldId] to this player: they're asked first, and nothing downloads until they say Host it. */
 	fun takeOver(worldId: String, from: String) = world(worldId) { w ->
+		dialogs.handedToYou(from, w.name, host = { host(w, from) }, decline = { decline(w) })
+	}
+
+	/**
+	 * Hosting what [from] handed over: their upload, then KeplerSync gives the lease here, then the latest copy and
+	 * Play as usual. Everyone else in the world joins once it's open here.
+	 */
+	private fun host(w: World, from: String) {
 		var pct = 0f
 		var status = tr("tandem.waiting_for_s_game_to_save_it", from)
 		var stopped = false
-		dialogs.takingOver(from, w.name, { status }, { pct }) { stopped = true }
+		dialogs.takingOver(from, w.name, { status }, { pct }) { stopped = true; decline(w) }
 		val until = System.currentTimeMillis() + 30 * 60_000
 		fun poll() {
 			later(ask { d.cloud.lease(w.cloudId!!) }) { l ->
@@ -545,6 +601,67 @@ class RealPlay(private val dialogs: Dialogs, private val changed: () -> Unit) {
 		poll()
 	}
 
+	/** Not hosting after all: the world is freed, and those waiting to join this player stop waiting. */
+	private fun decline(w: World) {
+		val a = KsAccount.get() ?: return
+		a.run { api -> api.declineHandoff(w.cloudId!!) }.whenComplete { _, e ->
+			mc.execute {
+				val cause = if (e is CompletionException && e.cause != null) e.cause!! else e
+				if (cause != null) layers.toast(tr("tandem.something_went_wrong"), cause.message ?: cause.javaClass.simpleName, "warn")
+				else layers.toast(tr("tandem.is_free_for_anyone", w.name), tr("tandem.anyone_its_shared_with_can_open_it"))
+			}
+		}
+	}
+
+	/**
+	 * This game was in [hostId]'s game of [worldId] and lost the connection. Only when KeplerSync says their game stopped
+	 * answering (under 45 s left on a 90 s lease that heartbeats renew every 30 s), or let the world go, is it the host's
+	 * game: then this player can take over from the last save. A host still answering means this player's own connection
+	 * dropped, and a host uploading is leaving the usual way: nothing to say then. Someone else taking over first is joined.
+	 */
+	fun hostStopped(worldId: String, hostId: String, hostName: String, others: List<String>) = world(worldId) { w ->
+		val until = System.currentTimeMillis() + 75_000
+		fun poll() {
+			later(ask {
+				val l = d.cloud.lease(w.cloudId!!)
+				val saved = w.head?.let { h -> runCatching { d.cloud.snapshot(w.cloudId!!, h) }.getOrNull()?.time }
+				l to saved
+			}, { RealWorlds.refresh(changed) }) { (l, saved) ->
+				if (l != null && !l.heldBy(hostId) && !l.heldBy(d.player())) return@later take(w)
+				val gone = l == null || (l.heldBy(hostId) && l.state == Cloud.HOSTING && l.expires - System.currentTimeMillis() < 45_000)
+				if (gone) {
+					val host = Sample.friends.firstOrNull { it.userId == hostId } ?: Person(hostName, 0, false, "")
+					dialogs.stopped(host, w.name, others, saved?.let(RealWorlds::ago), title = { layers.closeDialog(); mc.setScreen(TitleScreen()) }) {
+						layers.closeDialog()
+						takeOverStopped(w, hostId, hostName)
+					}
+				} else if (l?.state == Cloud.HOSTING && System.currentTimeMillis() < until) soon(::poll)
+			}
+		}
+		poll()
+	}
+
+	/** Take over hosting after [hostName]'s game stopped: once KeplerSync lets the world go, as for Play. */
+	private fun takeOverStopped(w: World, hostId: String, hostName: String) {
+		var status = tr("tandem.waiting_for_keplersync_to_let_it_go")
+		var stopped = false
+		dialogs.freeing(hostName, w.name, { status }) { stopped = true }
+		val until = System.currentTimeMillis() + 3 * 60_000
+		fun poll() {
+			later(ask { d.cloud.lease(w.cloudId!!) }) { l ->
+				if (stopped) return@later
+				if (l == null || !l.heldBy(hostId)) { layers.closeDialog(); return@later take(w) }
+				if (System.currentTimeMillis() > until) {
+					layers.closeDialog()
+					return@later layers.toast(tr("tandem.is_hosting_again", hostName, w.name), tr("tandem.join_them_from_play"))
+				}
+				status = tr("tandem.free_in_about_s", ((l.expires - System.currentTimeMillis()) / 1000).coerceAtLeast(0))
+				soon(::poll)
+			}
+		}
+		poll()
+	}
+
 	/** [from] handed [worldId] to [to] (by KeplerSync id, [toName] on screen): join them as soon as they're hosting it. */
 	fun follow(worldId: String, from: String, toName: String, to: String) = world(worldId) { w ->
 		var status = tr("tandem.s_game_is_saving", from, w.name)
@@ -555,10 +672,15 @@ class RealPlay(private val dialogs: Dialogs, private val changed: () -> Unit) {
 		fun poll() {
 			later(ask {
 				val l = d.cloud.lease(w.cloudId!!)
-				if (l != null && l.heldBy(to) && l.state == Cloud.HOSTING) runCatching { a.api.playForWorld(w.cloudId!!) }.getOrNull() else null
-			}) { s ->
+				l to if (l != null && l.heldBy(to) && l.state == Cloud.HOSTING) runCatching { a.api.playForWorld(w.cloudId!!) }.getOrNull() else null
+			}) { (l, s) ->
 				if (stopped) return@later
 				if (s != null) return@later RealJoin.join(s.id, toName, w.name, dialogs)
+				// Nobody has it: they said no, or the host's game stopped before handing it over.
+				if (l == null) {
+					layers.closeDialog()
+					return@later layers.toast(tr("tandem.isnt_hosting", toName, w.name), tr("tandem.its_free_now_open_it_from_play"), "warn")
+				}
 				if (System.currentTimeMillis() > until) {
 					layers.closeDialog()
 					return@later layers.toast(tr("tandem.isnt_hosting_yet", toName, w.name), tr("tandem.join_them_from_play_once_they_are"), "warn")
@@ -571,6 +693,8 @@ class RealPlay(private val dialogs: Dialogs, private val changed: () -> Unit) {
 	}
 
 	/** Play when ready: the friend's upload, from their lease, then Play by itself. */
+	private val DAY = 24 * 60 * 60_000L
+
 	private fun waitFor(w: World) {
 		var pct = w.pct / 100f
 		var free = false
@@ -579,10 +703,26 @@ class RealPlay(private val dialogs: Dialogs, private val changed: () -> Unit) {
 			later(ask { d.cloud.lease(w.cloudId!!) }) { l ->
 				if (!layers.busy) return@later
 				if (l == null || l.state != Cloud.UPLOADING) { free = true; layers.closeDialog(); RealWorlds.refresh(changed); play(w) }
+				// An upload's lease lasts a day past its last heartbeat (every 30 s): none for 90 s, and they quit before it
+				// finished (A4). It finishes when they're back; the day running out lets the group carry on (A5).
+				else if (System.currentTimeMillis() - (l.expires - DAY) > 90_000) {
+					free = true
+					layers.closeDialog()
+					later(ask { w.head?.let { h -> runCatching { d.cloud.snapshot(w.cloudId!!, h) }.getOrNull()?.time } }) { t ->
+						val owner = if (w.mine) { { carryOn(w) } } else null
+						dialogs.waitQuit(w, l.progress, RealWorlds.at(l.expires), t?.let(RealWorlds::ago) ?: tr("tandem.its_last_save"), owner)
+					}
+				}
 				else { pct = l.progress; soon(::poll) }
 			}
 		}
 		poll()
+	}
+
+	/** The owner stops waiting for a friend's upload that stalled: KeplerSync lets the world go, and it opens from the last one. */
+	private fun carryOn(w: World) {
+		val a = KsAccount.get() ?: return
+		later(ask { a.api.carryOn(w.cloudId!!) }) { RealWorlds.refresh(changed); play(w) }
 	}
 
 	/** A quick question for the cloud, off the sync thread: that may be busy with a transfer for minutes. */
@@ -634,13 +774,10 @@ object RealFriends {
 		if (a.version == seen) return false
 		seen = a.version
 		a.me?.let { me ->
-			Account.name = me.displayName; me.friendCode?.let { Account.code = it }
-			Account.discord = me.identities.any { it.provider == "discord" }
-			Account.discordPicture = me.discordAvatarUrl
-			me.avatarSource?.let { Account.picture = it }
-			if (!Account.discord && Account.picture == "discord") Account.picture = "minecraft"
+			Account.name = me.displayName
+			me.username?.let { Account.handle = it }
+			me.friendLink?.let { Account.link = it }
 		}
-		twice = (a.friends.map { it.user } + a.requests.map { it.user }).groupBy { (it.displayName ?: "").lowercase() }.filterValues { it.size > 1 }.keys
 		Sample.friends.clear()
 		Sample.friends.addAll(a.friends.map { person(it.user, a.presenceOf(it.user.id)) }.sortedBy { it.rank })
 		Sample.requests.clear()
@@ -648,13 +785,7 @@ object RealFriends {
 		return true
 	}
 
-	/** Display names two or more friends (or requests) share: those show their username beside them, as in Atlas. */
-	private var twice: Set<String> = emptySet()
-
-	private fun label(u: KeplerSyncApi.User): String {
-		val shown = u.displayName ?: u.username ?: u.id
-		return if (shown.lowercase() in twice && u.username != null) "$shown (@${u.username})" else shown
-	}
+	private fun label(u: KeplerSyncApi.User): String = u.displayName ?: u.username ?: u.id
 
 	private fun person(u: KeplerSyncApi.User, p: KeplerSyncApi.Presence?, note: String? = null): Person {
 		val state = p?.state ?: "offline"
@@ -666,10 +797,14 @@ object RealFriends {
 		}
 		return Person(label(u), abs(u.id.hashCode() % 16), note != null || state != "offline", text, hosting = invite != null, inWorld = state == "playing").also {
 			it.userId = u.id
+			it.handle = u.username
 			it.atlasOnly = invite == null && note == null && state == "online" && p?.inMinecraft != true
 			it.profile = u.minecraftUuid?.let { id -> profile(UUID.fromString(dashed(id)), u.minecraftUsername ?: u.displayName) }
 		}
 	}
+
+	/** Someone found by name or link, as the add-a-friend dialog shows them. */
+	fun found(u: KeplerSyncApi.User): Person = person(u, null, "")
 
 	private fun dashed(id: String) = if (id.contains('-')) id else "${id.substring(0, 8)}-${id.substring(8, 12)}-${id.substring(12, 16)}-${id.substring(16, 20)}-${id.substring(20)}"
 
@@ -736,14 +871,11 @@ object RealFriends {
 
 	/** A new display name, the same in Atlas: KeplerSync checks it (1 to 32 characters, not someone else's). */
 	fun rename(layers: Layers, changed: () -> Unit, name: String) =
-		act(layers, changed, tr("tandem.name_changed"), tr("tandem.friends_see_it_in_atlas_and_tandem")) { KsAccount.get()?.me = it.updateProfile(name, null) }
+		act(layers, changed, tr("tandem.name_changed"), tr("tandem.friends_see_it_in_atlas_and_tandem")) { KsAccount.get()?.me = it.updateProfile(name) }
 
-	/** The picture friends see: "minecraft" (the skin's face) or "discord". */
-	fun picture(layers: Layers, changed: () -> Unit, source: String) =
-		act(layers, changed, tr("tandem.picture_changed"), tr("tandem.friends_see_it_in_atlas_and_tandem")) { KsAccount.get()?.me = it.updateProfile(null, source) }
-
-	fun addFriend(layers: Layers, changed: () -> Unit, code: String) =
-		act(layers, changed, tr("tandem.friend_request_sent"), tr("tandem.they_show_up_here_once_they_accept")) { it.addFriend(code) }
+	/** [who] is a Minecraft name, or a friend link. */
+	fun addFriend(layers: Layers, changed: () -> Unit, who: String) =
+		act(layers, changed, tr("tandem.friend_request_sent"), tr("tandem.they_show_up_here_once_they_accept")) { it.addFriend(who) }
 
 	/** [reason] is the dialog's wording; KeplerSync files it as abuse unless it's "Something else". */
 	fun report(layers: Layers, changed: () -> Unit, p: Person, reason: String, details: String, block: Boolean) =
@@ -755,8 +887,8 @@ object RealFriends {
 	fun newCode(layers: Layers, changed: () -> Unit) = act(layers, changed, null, null) { api ->
 		val me = api.newFriendCode()
 		Minecraft.getInstance().execute {
-			Account.code = me.friendCode
-			layers.toast(tr("tandem.your_new_code_is", me.friendCode), tr("tandem.the_old_one_no_longer_works"))
+			me.friendLink?.let { Account.link = it }
+			layers.toast(tr("tandem.you_have_a_new_friend_link"), tr("tandem.the_old_one_no_longer_works"))
 		}
 	}
 }

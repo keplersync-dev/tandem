@@ -2,7 +2,7 @@
 # Tandem's in-game checks, two games at a time, against a local KeplerSync on this PC.
 #   bash dev/checks.sh                    every suite, in order
 #   bash dev/checks.sh friends sync lease  just these (friends first: the others need Alex and Sam to be friends)
-# Suites: friends sync lease play handoff history own round walk old updates mods
+# Suites: friends sync lease play handoff rescue history own round walk old updates mods
 # Each run gets a fresh database and fresh game folders in devcloud/runs/<time>; the summary is report.md there.
 # Needs Docker (server/docker-compose.yml: postgres and storage), cargo and JDK 21. The games' windows open while it runs.
 set -u
@@ -18,7 +18,7 @@ for d in run-a run-a2 run-b run-c run-x; do
 	mkdir -p "$OUT/$d"
 	printf 'onboardAccessibility:false\npauseOnLostFocus:false\ntutorialStep:none\njoinedFirstServer:true\nskipMultiplayerWarning:true\nsoundCategory_master:0.0\n' > "$OUT/$d/options.txt"
 done
-SUITES=${*:-friends sync mistakes lease play handoff history own round walk old updates mods}
+SUITES=${*:-friends sync mistakes lease play handoff rescue history own round walk old updates mods}
 DATA_KEY=dGFuZGVtLWNoZWNrLWRhdGEta2V5LWZvci10ZXN0cyE=
 SECRET=tandem-check-relay-secret-tandem-check-relay
 MIN_TANDEM=
@@ -130,6 +130,8 @@ pair() { # pair <suite> <Sam's task> <Alex's task> [seconds]
 }
 suite_play() { pair play runPlayB runPlayA; pair play-relay runPlayBRelay runPlayARelay; pair play-punch runPlayBPunch runPlayAPunch; }
 suite_handoff() { pair handoff runHandB runHandA; }
+# Hosting for each other (a slow download, a hand-off said no to, a quit mid-upload), then a host's game stopping.
+suite_rescue() { pair rescue runRescueB runRescueA; pair crash runCrashB runCrashA; }
 suite_history() { pair history runHistB runHistA; }
 suite_own() {
 	# Own storage stands in for R2 with a second local bucket.

@@ -582,27 +582,3 @@ fun whose(who: String?): String = if (who == "You") tr("tandem.your_lower") else
  * smooth-scrolling mice) sends many small amounts a second instead, so there it's a fifth of that.
  */
 val scrollStep = if (net.minecraft.Util.getPlatform() == net.minecraft.Util.OS.OSX) 20 else Scroller.STEP
-
-/** Pictures from the web (a Discord picture), each downloaded once in the background; null until it's in. */
-object WebPics {
-	private val loaded = java.util.concurrent.ConcurrentHashMap<String, ResourceLocation>()
-	private val asked = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-
-	fun get(url: String): ResourceLocation? {
-		loaded[url]?.let { return it }
-		if (asked.add(url)) Thread({
-			try {
-				val image = java.net.URI(url).toURL().openStream().use { NativeImage.read(it) }
-				val mc = Minecraft.getInstance()
-				mc.execute {
-					val loc = ResourceLocation.fromNamespaceAndPath("tandem", "web/" + Integer.toHexString(url.hashCode()))
-					mc.textureManager.register(loc, net.minecraft.client.renderer.texture.DynamicTexture(image))
-					loaded[url] = loc
-				}
-			} catch (e: Exception) {
-				app.keplersync.tandem.fabric.TandemClient.LOG.info("Tandem couldn't load a picture: {}", e.toString())
-			}
-		}, "Tandem picture").apply { isDaemon = true }.start()
-		return null
-	}
-}

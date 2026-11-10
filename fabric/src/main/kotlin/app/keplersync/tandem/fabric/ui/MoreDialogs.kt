@@ -1,5 +1,6 @@
 package app.keplersync.tandem.fabric.ui
 
+import app.keplersync.tandem.core.KeplerSyncApi
 import app.keplersync.tandem.fabric.account.Account as KsAccount
 import app.keplersync.tandem.fabric.account.LogBook
 import app.keplersync.tandem.fabric.play.Hosting
@@ -8,6 +9,7 @@ import gg.essential.elementa.ElementaVersion
 import gg.essential.elementa.UIComponent
 import gg.essential.elementa.WindowScreen
 import gg.essential.elementa.components.UIContainer
+import gg.essential.elementa.components.Window
 import gg.essential.elementa.constraints.CenterConstraint
 import gg.essential.elementa.constraints.SiblingConstraint
 import gg.essential.elementa.dsl.basicHeightConstraint
@@ -26,6 +28,8 @@ import net.minecraft.client.gui.screens.ConfirmLinkScreen
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 
 // More dialogs, with the sample's data and words.
 
@@ -441,40 +445,61 @@ fun Dialogs.report(p: Person, blocked: () -> Unit = {}) {
 	}
 }
 
-/** A new friend code: the old one stops working, friends stay. */
+/** A new friend link: the old one stops working, friends stay. */
 fun Dialogs.newCode() {
 	layers.openDialog {
 		dialog(
 			500,
-			titled(tr("tandem.get_a_new_friend_code"), tr("tandem.stops_working_so_anyone_you_gave_it", Account.code), 500),
+			titled(tr("tandem.get_a_new_friend_link"), tr("tandem.your_old_link_stops_working_so_anyone"), 500),
 			actions(500,
-				Button(tr("tandem.keep_this_code"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog() },
-				Button(tr("tandem.get_a_new_code"), Kind.FILLED, Size.NORMAL, null, Tok.panel) {
+				Button(tr("tandem.keep_this_link"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog() },
+				Button(tr("tandem.get_a_new_link"), Kind.FILLED, Size.NORMAL, null, Tok.panel) {
 					if (RealFriends.signedIn) { layers.closeDialog(); return@Button RealFriends.newCode(layers, changed) }
-					Account.code = "KEPL-" + (1000 + (Math.random() * 9000).toInt())
+					Account.link = "https://keplersync.app/f/KEPL" + (1000 + (Math.random() * 9000).toInt())
 					layers.closeDialog(); changed()
-					layers.toast(tr("tandem.your_new_code_is", Account.code), tr("tandem.the_old_one_no_longer_works"))
+					layers.toast(tr("tandem.you_have_a_new_friend_link"), tr("tandem.the_old_one_no_longer_works"))
 				},
 			),
 		)
 	}
 }
 
-/** Add a friend: your code to copy, theirs to type, and who it is before you send. */
+/** Add a friend: their Minecraft name (or a friend link) to type, who it is before you send, and your link to copy. */
 fun Dialogs.addFriend() {
 	layers.openDialog {
 		lateinit var send: Button
-		val hint = UIContainer().constrain { width = 500.at; height = 22.at }
-		fun preview(ok: Boolean) {
-			hint.clearChildren()
-			if (ok) {
-				val pat = Sample.requests.firstOrNull() ?: Person(tr("tandem.pat"), 14, true, tr("tandem.in_the_menu"))
-				row(8, Face({ pat.skin }, 22, 5, null, Tok.panel), Label(tr("tandem.pat"), 13, Weight.REGULAR, Tok.ink), Label(tr("tandem.will_get_your_request"), 13, Weight.REGULAR, Tok.muted))
-					.constrain { y = CenterConstraint() } childOf hint
-			} else Label(tr("tandem.friend_codes_look_like", if (RealFriends.signedIn) "7KQ29XMB" else "KEPL-1234"), 13, Weight.REGULAR, Tok.muted).constrain { y = CenterConstraint() } childOf hint
-		}
-		preview(false)
+		val hint = UIContainer().constrain { width = 500.at; height = 40.at }
 		var typed = ""
+		var asked = 0
+		fun show(found: Person?, missing: String?) {
+			hint.clearChildren()
+			send.enabled = found != null
+			if (found != null) row(10, Face({ found.skin }, 28, 6, null, Tok.panel), Label(found.name, 15, Weight.SEMIBOLD), Label("@" + (found.handle ?: typed.trim()), 13, Weight.REGULAR, Tok.muted))
+				.constrain { y = CenterConstraint() } childOf hint
+			else if (missing != null) Label(missing, 13, Weight.REGULAR, Tok.warn).constrain { y = CenterConstraint() } childOf hint
+		}
+		// Asked once typing pauses; only the latest answer counts.
+		fun look(who: String) {
+			val mine = ++asked
+			if (who.isBlank()) return show(null, null)
+			if (!RealFriends.signedIn) {
+				val pat = Sample.requests.firstOrNull() ?: Person(tr("tandem.pat"), 14, true, tr("tandem.in_the_menu"))
+				return if (who.trim().removePrefix("@").equals("pat", true)) show(pat.also { it.handle = "pat" }, null)
+				else show(null, tr("tandem.no_one_called_is_on_keplersync", who.trim()))
+			}
+			val account = KsAccount.get() ?: return
+			var user: KeplerSyncApi.User? = null
+			CompletableFuture.runAsync({}, CompletableFuture.delayedExecutor(400, TimeUnit.MILLISECONDS))
+				.thenCompose { if (mine == asked) account.run { api -> user = api.findFriend(who) } else CompletableFuture.completedFuture(null) }
+				.whenComplete { _, e ->
+					Minecraft.getInstance().execute {
+						if (mine != asked) return@execute
+						val u = user
+						if (e == null && u != null) show(RealFriends.found(u), null)
+						else if (e != null) show(null, (e.cause ?: e).message ?: tr("tandem.no_one_called_is_on_keplersync", who.trim()))
+					}
+				}
+		}
 		send = Button(tr("tandem.send_request"), Kind.FILLED, Size.NORMAL, null, Tok.panel) {
 			layers.closeDialog()
 			if (RealFriends.signedIn) return@Button RealFriends.addFriend(layers, changed, typed)
@@ -483,20 +508,21 @@ fun Dialogs.addFriend() {
 		send.enabled = false
 		val card = box(14, Tok.raise, Tok.line).constrain { width = 500.at; height = 74.at }
 		val mine = Column(4).constrain { x = 17.at; y = CenterConstraint(); width = 300.at } childOf card
-		mine.add(Label(tr("tandem.your_friend_code"), 13, Weight.REGULAR, Tok.muted))
-		mine.add(Label(Account.code, 18, Weight.SEMIBOLD))
-		Button(tr("tandem.copy"), Kind.OUTLINE, Size.SMALL, null, Tok.raise) { copyCode() }.constrain { x = 17.fromEnd; y = CenterConstraint() } childOf card
+		mine.add(Label(tr("tandem.or_send_your_friend_link"), 13, Weight.REGULAR, Tok.muted))
+		mine.add(Label(Account.link.removePrefix("https://"), 15, Weight.SEMIBOLD).also { it.room = { 300.tp } })
+		Button(tr("tandem.copy"), Kind.OUTLINE, Size.SMALL, null, Tok.raise) { copyLink() }.constrain { x = 17.fromEnd; y = CenterConstraint() } childOf card
+		val name = Field("Notch", null, 40) {
+			typed = it
+			look(it)
+		}
+		// Ready to type straight away, once the dialog is on screen.
+		Window.enqueueRenderOperation { runCatching { name.grabWindowFocus() } }
 		dialog(
 			500,
-			titled(tr("tandem.add_a_friend"), tr("tandem.swap_friend_codes_with_them"), 500),
-			card,
-			labeled(tr("tandem.your_friends_code"), Field(if (RealFriends.signedIn) "7KQ29XMB" else "KEPL-1234", null, 40) {
-				typed = it
-				val ok = if (RealFriends.signedIn) Regex("^[a-zA-Z0-9]{8}$").matches(it.trim().replace("-", ""))
-				else Regex("^[a-zA-Z]{4}-?\\d{4}$").matches(it.trim())
-				send.enabled = ok; preview(ok && !RealFriends.signedIn)
-			}),
+			titled(tr("tandem.add_a_friend"), tr("tandem.type_their_minecraft_name"), 500),
+			labeled(tr("tandem.their_minecraft_name"), name),
 			hint,
+			card,
 			actions(500, Button(tr("tandem.cancel"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog() }, send),
 		)
 	}
@@ -528,9 +554,9 @@ fun Dialogs.sendLogs() {
 	}
 }
 
-fun Dialogs.copyCode() {
-	Minecraft.getInstance().keyboardHandler.clipboard = Account.code
-	layers.toast(tr("tandem.copied", Account.code), tr("tandem.send_it_to_your_friend_however_you"))
+fun Dialogs.copyLink() {
+	Minecraft.getInstance().keyboardHandler.clipboard = Account.link
+	layers.toast(tr("tandem.friend_link_copied"), tr("tandem.send_it_to_your_friend_however_you"))
 }
 
 /**
@@ -697,13 +723,14 @@ private fun Dialogs.fullReal(w: World) {
 }
 
 /** The host's game stopped: host from the last save (the others reconnect to you), or go back to the title screen. */
-fun Dialogs.stopped(host: Person, world: String, others: List<String>, title: () -> Unit, takeOver: () -> Unit) {
+fun Dialogs.stopped(host: Person, world: String, others: List<String>, saved: String?, title: () -> Unit, takeOver: () -> Unit) {
+	devTakeOver = takeOver
 	val rest = if (others.isEmpty()) "" else if (others.size == 1) tr("tandem.and_reconnects_to_you", others[0]) else tr("tandem.and_reconnect_to_you", Pages.names(others))
 	layers.openDialog {
 		dialog(
 			500,
 			who(Face({ host.skin }, 48, 10, null, Tok.panel), tr("tandem.s_game_stopped", host.name), tr("tandem.was_running_on_s_pc_you_can", world, host.name, rest), 500),
-			safe("shield", tr("tandem.last_saved_to_the_cloud_22_min", host.name, host.name), 500),
+			safe("shield", if (saved != null) tr("tandem.last_saved_to_the_cloud", saved, host.name, host.name) else tr("tandem.anything_newer_on_s_pc", host.name, host.name), 500),
 			actions(500,
 				Button(tr("tandem.back_to_title_screen"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog(); title() },
 				Button(tr("tandem.take_over_hosting"), Kind.FILLED, Size.NORMAL, null, Tok.panel) { takeOver() },
@@ -848,22 +875,36 @@ fun Dialogs.otherGame(w: World, saving: Boolean) {
 }
 
 /** Getting the latest copy for real: bytes, speed and time left from the transfer, closed by the caller when it's done. */
-fun Dialogs.gettingLatest(w: World, t: WorldSync.Transfer, cancel: () -> Unit) {
+fun Dialogs.gettingLatest(w: World, t: WorldSync.Transfer, helper: Person? = null, ask: (Person) -> Unit = {}, cancel: () -> Unit) {
 	layers.openDialog {
 		val got = Label(tr("tandem.checking_what_changed"), 13, Weight.REGULAR, Tok.muted)
 		val rate = Label("", 13, Weight.REGULAR, Tok.muted)
+		// Slower than about 10 minutes, a friend in the world who's online can host instead (A2).
+		val slow = helper?.let { h ->
+			devAsk = { layers.closeDialog(); ask(h) }
+			val b = box(12, Tok.raise, Tok.line).constrain { width = 500.at; height = (34 + 28).at }
+			Label(tr("tandem.slow_connection_can_host_instead_and_you", h.name), 13, Weight.REGULAR, Tok.sec).constrain { x = 17.at; y = CenterConstraint() } childOf b
+			Button(tr("tandem.ask_to_host", h.name), Kind.OUTLINE, Size.SMALL, null, Tok.raise) { layers.closeDialog(); ask(h) }
+				.constrain { x = 17.fromEnd; y = CenterConstraint() } childOf b
+			b
+		}
 		val box = dialog(
 			500,
 			titled(tr("tandem.getting_the_latest", w.name), tr("tandem.last_saved_by_only_the_parts_that", w.who, w.ago), 500),
 			progress(false, 500, { t.progress.fraction() }, got, rate),
 			safe("shield", tr("tandem.your_copy_on_this_pc_isnt_touched"), 500),
+			*(slow?.let { arrayOf(it) } ?: emptyArray()),
 			actions(500, Button(tr("tandem.cancel"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog(); cancel() }),
 		)
+		slow?.hide(instantly = true)
+		// Dev checks hold the download to catch it: it counts as slow then.
+		if (java.lang.Long.getLong("tandem.downloadPauseMs", 0L) > 0) slow?.unhide()
 		Ticker {
 			val p = t.progress
 			if (p.total() > 0) {
 				got.text = tr("tandem.x_of_y", bytesText(p.done()), bytesText(p.total()))
 				val left = p.secondsLeft()
+				if (left > 600) slow?.unhide()
 				rate.text = tr("tandem.mb_per_s", "%.1f".format(p.bytesPerSecond() / (1 shl 20))) +
 					if (left < 0) "" else tr("tandem.about_left", if (left < 60) tr("tandem.n_s", left) else tr("tandem.n_min", left / 60))
 			}
@@ -907,15 +948,45 @@ fun Dialogs.changedOutside(w: World, files: Int, cancel: () -> Unit, discard: ()
 	}
 }
 
-/** Waiting, when the friend quit before their upload finished: it finishes when they're back, 24 hours at most. */
-fun Dialogs.waitQuit(w: World) {
-	val friend = Sample.person(w.who)
+/**
+ * Waiting, when the friend quit before their upload finished: it finishes when they're back, 24 hours at most. The bar
+ * stays where their upload stopped ([pct], 0 to 1); [by] is when the wait ends ("9:40 pm tomorrow"), [lastUpload] when
+ * their last upload arrived.
+ */
+fun Dialogs.waitQuit(w: World, pct: Float, by: String, lastUpload: String, carryOn: (() -> Unit)? = null) {
+	devQuitShown = true
+	devCarryOn = carryOn?.let { { layers.closeDialog(); carryOnFirst(w, lastUpload, it) } }
+	val skin = Sample.friends.firstOrNull { it.name == w.who }?.skin ?: yourSkin()
 	layers.openDialog {
 		dialog(
 			500,
-			who(Face({ friend.skin }, 48, 10, null, Tok.panel), tr("tandem.is_still_saving", w.who, w.name), tr("tandem.quit_minecraft_before_the_upload_finished_it", w.who, w.who), 500),
-			safe("clock", tr("tandem.if_it_hasnt_arrived_by_9_40", w.who, w.who), 500, Tok.muted),
-			actions(500, Button(tr("tandem.close"), Kind.FILLED, Size.NORMAL, null, Tok.panel) { layers.closeDialog() }),
+			who(Face({ skin }, 48, 10, null, Tok.panel), tr("tandem.is_still_saving", w.who, w.name), tr("tandem.closed_minecraft_before_this_session", w.who, w.who), 500),
+			progress(true, 500, { pct }, Label(tr("tandem.paused_at", (pct * 100).roundToInt()), 13, Weight.MEDIUM, Tok.warn), Label(tr("tandem.waits_until", by), 13, Weight.REGULAR, Tok.muted)),
+			safe("clock", tr("tandem.not_back_by_then", w.who, lastUpload), 500, Tok.muted),
+			if (carryOn == null) actions(500, Button(tr("tandem.close"), Kind.FILLED, Size.NORMAL, null, Tok.panel) { layers.closeDialog() })
+			else actions(500,
+				Button(tr("tandem.close"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog() },
+				Button(tr("tandem.play_from_the_last_upload"), Kind.FILLED, Size.NORMAL, null, Tok.panel) {
+					layers.closeDialog()
+					carryOnFirst(w, lastUpload, carryOn)
+				},
+			),
+		)
+	}
+}
+
+/** The owner stops waiting for [w]'s unfinished upload: it opens from the last one, and the unfinished one is kept too. */
+private fun Dialogs.carryOnFirst(w: World, lastUpload: String, carryOn: () -> Unit) {
+	devCarryOn = { layers.closeDialog(); carryOn() }
+	layers.openDialog {
+		dialog(
+			460,
+			who(mic("cloud", Tok.warn), tr("tandem.play_from_s_last_upload", w.who), tr("tandem.opens_from_the_upload_from", w.name, lastUpload, w.who), 460),
+			safe("shield", tr("tandem.when_their_unfinished_session_arrives", w.who), 460),
+			actions(460,
+				Button(tr("tandem.keep_waiting"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog() },
+				Button(tr("tandem.play_from_the_last_upload"), Kind.FILLED, Size.NORMAL, null, Tok.panel) { layers.closeDialog(); carryOn() },
+			),
 		)
 	}
 }
@@ -1075,6 +1146,71 @@ fun Dialogs.takingOver(from: String, world: String, status: () -> String, value:
 		)
 		Ticker { line.text = status() } childOf box
 		box
+	}
+}
+
+/** Asked [friend] to host [world]: this player joins them as soon as they're hosting. */
+fun Dialogs.askedToHost(friend: Person, world: String, status: () -> String, cancel: () -> Unit) {
+	layers.openDialog {
+		dialog(
+			500,
+			who(Face({ friend.skin }, 48, 10, null, Tok.panel), tr("tandem.waiting_for_to_host", friend.name), tr("tandem.you_asked_to_host_youll_join", friend.name, world), 500),
+			Live(13, Weight.REGULAR, Tok.sec, status),
+			actions(500, Button(tr("tandem.stop_waiting"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { cancel(); layers.closeDialog() }),
+		)
+	}
+}
+
+/** [from] asks this player to host [world]: their download is slow. Host it opens it from Play, and they join. */
+fun Dialogs.askedYouToHost(from: Person, world: String, host: () -> Unit, decline: () -> Unit) {
+	devAskedHost = { layers.closeDialog(); host() }
+	layers.openDialog {
+		dialog(
+			500,
+			who(Face({ from.skin }, 48, 10, null, Tok.panel), tr("tandem.asks_you_to_host", from.name, world), tr("tandem.their_download_is_slow_host_it", from.name), 500),
+			actions(500,
+				Button(tr("tandem.not_now"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog(); decline() },
+				Button(tr("tandem.host_it"), Kind.FILLED, Size.NORMAL, null, Tok.panel) { layers.closeDialog(); host() },
+			),
+		)
+	}
+}
+
+/** Dev checks: the buttons of the dialogs a check answers, set while each is showing. */
+internal var devHostIt: (() -> Unit)? = null
+internal var devNotNow: (() -> Unit)? = null
+internal var devTakeOver: (() -> Unit)? = null
+internal var devAsk: (() -> Unit)? = null
+internal var devAskedHost: (() -> Unit)? = null
+internal var devQuitShown = false
+internal var devCarryOn: (() -> Unit)? = null
+
+/** [from] handed [world] to this player: host it (the latest copy, then friends join), or leave it free for anyone. */
+fun Dialogs.handedToYou(from: String, world: String, host: () -> Unit, decline: () -> Unit) {
+	val skin = Sample.friends.firstOrNull { it.name == from }?.skin ?: yourSkin()
+	devHostIt = host
+	devNotNow = { layers.closeDialog(); decline() }
+	layers.openDialog {
+		dialog(
+			500,
+			who(Face({ skin }, 48, 10, null, Tok.panel), tr("tandem.handed_hosting_to_you", from), tr("tandem.is_leaving_and_picked_you_to_host", from, world), 500),
+			actions(500,
+				Button(tr("tandem.not_now"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { layers.closeDialog(); decline() },
+				Button(tr("tandem.host_it"), Kind.FILLED, Size.NORMAL, null, Tok.panel) { host() },
+			),
+		)
+	}
+}
+
+/** Taking over [world] after [host]'s game stopped: KeplerSync lets it go, then it opens here. */
+fun Dialogs.freeing(host: String, world: String, status: () -> String, cancel: () -> Unit) {
+	layers.openDialog {
+		dialog(
+			500,
+			who(mic("host", Tok.violetHi), tr("tandem.taking_over", world), tr("tandem.s_game_stopped_answering", host), 500),
+			Live(13, Weight.REGULAR, Tok.sec, status),
+			actions(500, Button(tr("tandem.cancel"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { cancel(); layers.closeDialog() }),
+		)
 	}
 }
 

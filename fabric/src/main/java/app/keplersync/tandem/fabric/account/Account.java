@@ -71,6 +71,22 @@ public final class Account {
 		}
 	}
 
+	/** Someone in a synced world asking this player to host it, or saying they can't host one this player asked about. */
+	public static final class HostAsk {
+		public final String worldId;
+		public final String userId;
+
+		HostAsk(String worldId, String userId) {
+			this.worldId = worldId;
+			this.userId = userId;
+		}
+	}
+
+	/** Friends asking this player to host a world for them (their download is slow). */
+	public final ConcurrentLinkedQueue<HostAsk> hostRequests = new ConcurrentLinkedQueue<>();
+	/** Friends this player asked to host who can't right now. */
+	public final ConcurrentLinkedQueue<HostAsk> hostDeclines = new ConcurrentLinkedQueue<>();
+
 	/** Hand-offs just announced, for the game to act on once the host's world closes. */
 	public final ConcurrentLinkedQueue<Handoff> handoffs = new ConcurrentLinkedQueue<>();
 	/** Friends who just came online, for the toast. */

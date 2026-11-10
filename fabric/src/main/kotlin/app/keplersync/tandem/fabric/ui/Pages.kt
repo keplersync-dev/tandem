@@ -2,8 +2,6 @@ package app.keplersync.tandem.fabric.ui
 
 import app.keplersync.tandem.fabric.TandemClient
 import app.keplersync.tandem.fabric.account.Account as KsAccount
-import app.keplersync.tandem.fabric.account.DiscordLink
-import net.minecraft.Util
 import gg.essential.elementa.UIComponent
 import gg.essential.elementa.components.UIContainer
 import gg.essential.elementa.constraints.CenterConstraint
@@ -254,45 +252,35 @@ class Pages(private val dialogs: Dialogs, private val rebuild: () -> Unit, priva
 		val col = Column(24).constrain { x = 24.at; y = 22.at; width = W.at } childOf into
 		col.add(head(tr("tandem.settings"), tr("tandem.your_keplersync_account_works_the_same_here")))
 
-		val me = UIContainer().constrain { width = (W - 38).at; height = 64.at }
-		val face = if (Account.picture == "discord") DiscordPic(48, Tok.raise) else Face({ yourSkin() }, 48, 10, null, Tok.raise)
-		face.constrain { y = CenterConstraint() } childOf me
+		// As in Atlas: the display name to change, the Minecraft name beside it to read, Save at the end.
+		val me = UIContainer().constrain { width = (W - 38).at; height = 92.at }
+		Face({ yourSkin() }, 48, 10, null, Tok.raise).constrain { y = 22.at } childOf me
 		// Signed in, the name is KeplerSync's: Save sends it, as in Atlas. What's typed outlives a rebuild (a friend coming online).
 		val real = RealFriends.signedIn
 		if (draftName?.trim() == Account.name) draftName = null
 		fun savable(n: String) = n.trim().let { it.isNotEmpty() && it.length <= 32 && it != Account.name }
 		var save: Button? = null
-		labeled(tr("tandem.display_name"), Field(Account.minecraftName, null, 40, draftName ?: Account.name) {
+		val colW = (W - 38 - 64 - 16 - if (real) 100 else 0) / 2
+		val name = labeled(tr("tandem.display_name"), Field(Account.minecraftName, null, 40, draftName ?: Account.name) {
 			if (real) { draftName = it; save?.enabled = savable(it) }
 			else Account.name = it.ifBlank { Account.minecraftName }
-		}).constrain { x = 64.at; y = CenterConstraint(); width = (W - 38 - 64 - if (real) 100 else 0).at } childOf me
+		}) as Column
+		name.add(wrapped(tr("tandem.what_friends_see_change_it_any_time"), 13, Weight.REGULAR, Tok.muted, colW.tp, 1.45f))
+		name.constrain { x = 64.at; width = colW.at } childOf me
+		// Read, not typed: no field, a quieter box.
+		val handleBox = box(9, Tok.raise, Tok.line).constrain { width = 100.percent; height = 40.at }
+		Label("@" + Account.handle, 14, Weight.REGULAR, Tok.sec).constrain { x = 13.at; y = CenterConstraint() } childOf handleBox
+		val handle = labeled(tr("tandem.minecraft_name"), handleBox) as Column
+		handle.add(wrapped(tr("tandem.friends_add_you_with_this_rename"), 13, Weight.REGULAR, Tok.muted, colW.tp, 1.45f))
+		handle.constrain { x = (64 + colW + 16).at; width = colW.at } childOf me
 		if (real) save = Button(tr("tandem.save"), Kind.OUTLINE, Size.NORMAL, null, Tok.raise) { draftName?.let { RealFriends.rename(layers, rebuild, it.trim()) } }
-			.also { it.enabled = draftName?.let(::savable) == true; it.constrain { x = 0.fromEnd; y = 23.at } childOf me }
-		val pics = Column(8).constrain { width = (W - 38).at }
-		pics.add(Label(tr("tandem.picture"), 13, Weight.REGULAR, Tok.sec))
-		val choices = mutableListOf<Choice>()
-		for ((id, title, line) in listOf(
-			Triple("minecraft", tr("tandem.your_minecraft_skin"), tr("tandem.the_face_of_your_current_skin_changes")),
-			Triple("discord", tr("tandem.your_discord_picture"), if (Account.discord) tr("tandem.from_the_discord_account_you_linked") else tr("tandem.link_discord_below_to_use_it")),
-		)) {
-			val c = Choice(W - 38) {
-				if (id == "discord" && !Account.discord) return@Choice
-				if (real) return@Choice RealFriends.picture(layers, rebuild, id)
-				Account.picture = id; rebuild()
-				layers.toast(tr("tandem.picture_changed"), tr("tandem.friends_see_it_in_atlas_and_tandem"))
-			}
-			c.lead(if (id == "minecraft") Face({ yourSkin() }, 36, 8, null, c.surface) else DiscordPic(36, c.surface))
-			c.text(title, line, null, null)
-			c.on = Account.picture == id
-			choices += c
-			pics.add(c)
-		}
-		col.add(section(tr("tandem.profile"), card(16, parts = arrayOf(me, pics))))
-
+			.also { it.enabled = draftName?.let(::savable) == true; it.constrain { x = 0.fromEnd; y = 22.at } childOf me }
 		val w = W - 38
-		val code = setRow(tr("tandem.your_friend_code"), listOf(Run(Account.code, Weight.SEMIBOLD, Tok.ink), Run(tr("tandem.share_it_so_people_can_add_you"), Weight.REGULAR, Tok.muted)), w,
-			Button(tr("tandem.copy"), Kind.OUTLINE, Size.SMALL, null, Tok.raise) { dialogs.copyCode() },
-			Button(tr("tandem.get_a_new_code"), Kind.OUTLINE, Size.SMALL, null, Tok.raise) { dialogs.newCode() })
+		col.add(section(tr("tandem.profile"), card(16, parts = arrayOf(me))))
+
+		val link = setRow(tr("tandem.your_friend_link"), listOf(Run(tr("tandem.anyone_with_it_can_send_you_a"), Weight.REGULAR, Tok.muted)), w,
+			Button(tr("tandem.copy"), Kind.OUTLINE, Size.SMALL, null, Tok.raise) { dialogs.copyLink() },
+			Button(tr("tandem.get_a_new_link"), Kind.OUTLINE, Size.SMALL, null, Tok.raise) { dialogs.newCode() })
 		val blocked = Column(8).constrain { width = w.at }
 		blocked.add(Label(tr("tandem.blocked"), 14, Weight.SEMIBOLD), 14)
 		val people = if (real) RealFriends.blocked { rebuild() } else Sample.blocked
@@ -304,7 +292,9 @@ class Pages(private val dialogs: Dialogs, private val rebuild: () -> Unit, priva
 		blocked.add(wrapped(about, 13, Weight.REGULAR, Tok.muted, w.tp, 1.45f), -5)
 		for (p in people.orEmpty().toList()) {
 			val r = UIContainer().constrain { width = 100.percent; height = 44.at }
-			row(12, Face({ p.skin }, 28, 6, null, Tok.raise), Label(p.name, 15, Weight.SEMIBOLD).also { it.room = { (w - 160).tp } }).constrain { y = CenterConstraint() } childOf r
+			val name = Label(p.name, 15, Weight.SEMIBOLD).also { it.room = { (w - 160).tp } }
+			val at = p.handle?.let { h -> Label("@$h", 13, Weight.REGULAR, Tok.muted).also { it.room = { (w - 160).tp - name.getWidth() - 6.tp } } }
+			row(12, Face({ p.skin }, 28, 6, null, Tok.raise), if (at != null) row(6, name, at) else name).constrain { y = CenterConstraint() } childOf r
 			Button(tr("tandem.unblock"), Kind.OUTLINE, Size.SMALL, null, Tok.raise) {
 				if (p.userId != null) return@Button RealFriends.unblock(layers, rebuild, p)
 				Sample.blocked.remove(p); rebuild()
@@ -313,23 +303,7 @@ class Pages(private val dialogs: Dialogs, private val rebuild: () -> Unit, priva
 			blocked.add(r)
 		}
 		blocked.add(UIContainer().constrain { height = 6.at })
-		col.add(section(tr("tandem.friends_and_privacy"), card(0, 4, parts = arrayOf(code, blocked))))
-
-		col.add(section(tr("tandem.sign_in"), card(0, 4, parts = arrayOf(
-			setRow(tr("tandem.minecraft_2"), listOf(Run(tr("tandem.the_account_this_game_uses_always_signed", Account.minecraftName), Weight.REGULAR, Tok.muted)), w, pill(tr("tandem.linked"), Tok.violetHi, Tok.over(Tok.raise, Tok.violet, 0.14))),
-			setRow(tr("tandem.discord"), listOf(Run(if (Account.discord) tr("tandem.linked_lets_you_sign_in_to_atlas") else tr("tandem.optional_opens_your_browser_to_link_it"), Weight.REGULAR, Tok.muted)), w,
-				Button(if (Account.discord) tr("tandem.unlink") else tr("tandem.link_discord"), Kind.OUTLINE, Size.SMALL, null, Tok.raise) {
-					val real = KsAccount.get()?.takeIf { RealFriends.signedIn }
-					if (real != null) linkDiscord(real)
-					else if (Account.discord) {
-						Account.discord = false; if (Account.picture == "discord") Account.picture = "minecraft"; rebuild()
-						layers.toast(tr("tandem.discord_unlinked"), tr("tandem.its_picture_is_no_longer_stored_or"))
-					} else {
-						layers.toast(tr("tandem.finish_in_your_browser"), tr("tandem.discord_opened_tandem_updates_when_you_allow"))
-						Account.discord = true; rebuild()
-					}
-				}, last = true),
-		))))
+		col.add(section(tr("tandem.friends_and_privacy"), card(0, 4, parts = arrayOf(link, blocked))))
 
 		val keys = setRow(tr("tandem.keys"), listOf(Run(tr("tandem.join_from_an_invite_open_tandem_change", TandemClient.JOIN.translatedKeyMessage.string, TandemClient.OPEN.translatedKeyMessage.string), Weight.REGULAR, Tok.muted)), w,
 			Button(tr("tandem.open_controls"), Kind.OUTLINE, Size.SMALL, null, Tok.raise) {
@@ -569,46 +543,6 @@ class Pages(private val dialogs: Dialogs, private val rebuild: () -> Unit, priva
 			beforeDraw(matrixStack)
 			if (on) rounded(matrixStack, getLeft(), getBottom() - 2.tp, getRight(), getBottom(), 0f, Tok.violet)
 			super.draw(matrixStack)
-		}
-	}
-
-	/** Links Discord through the browser, or unlinks it, on the real account; Settings follows once KeplerSync says so. */
-	private fun linkDiscord(a: KsAccount) {
-		val mc = Minecraft.getInstance()
-		if (Account.discord) {
-			a.run { api -> a.me = api.unlink("discord") }.whenComplete { _, e ->
-				mc.execute {
-					if (e != null) layers.toast(tr("tandem.couldnt_unlink_discord"), (e.cause ?: e).message ?: tr("tandem.try_again_2"), "warn")
-					else layers.toast(tr("tandem.discord_unlinked"), tr("tandem.its_picture_is_no_longer_stored_or"))
-				}
-			}
-			return
-		}
-		layers.toast(tr("tandem.finish_in_your_browser"), tr("tandem.discord_opened_tandem_updates_when_you_allow"), "up", ms = 10_000)
-		DiscordLink.start(a) { url -> mc.execute { Util.getPlatform().openUri(url) } }.whenComplete { _, e ->
-			mc.execute {
-				if (e != null) layers.toast(tr("tandem.couldnt_link_discord"), (e.cause ?: e).message ?: tr("tandem.try_again_2"), "warn")
-				else layers.toast(tr("tandem.discord_linked"), tr("tandem.linked_lets_you_sign_in_to_atlas"))
-			}
-		}
-	}
-
-	/** The Discord picture: a round blue gradient stand-in with an initial, until real pictures load. */
-	/** The Discord picture, round, on [under]; the first letter of the name until it has loaded, or without one. */
-	private class DiscordPic(size: Int, private val under: Color) : UIComponent() {
-		init {
-			constrain { width = size.at; height = size.at }
-			Label(Account.name.take(1), (size * 0.42).toInt(), Weight.BOLD, Color.WHITE).constrain { x = CenterConstraint(); y = CenterConstraint() } childOf this
-		}
-
-		override fun draw(matrixStack: UMatrixStack) {
-			beforeDraw(matrixStack)
-			rounded(matrixStack, getLeft(), getTop(), getRight(), getBottom(), getWidth() / 2, Color(0x5865f2))
-			super.draw(matrixStack)
-			Account.discordPicture?.let(WebPics::get)?.let { pic ->
-				Tex.draw(matrixStack, pic, getLeft(), getTop(), getWidth(), getHeight(), Color.WHITE)
-				Tex.corners(matrixStack, getLeft(), getTop(), getRight(), getBottom(), getWidth() / 2, under)
-			}
 		}
 	}
 

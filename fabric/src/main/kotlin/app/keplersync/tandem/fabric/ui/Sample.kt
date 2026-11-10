@@ -85,6 +85,8 @@ class Person(
 ) {
 	/** A real friend's KeplerSync id; null for the sample's people. */
 	var userId: String? = null
+	/** Their @username: their Minecraft name. Shown faint beside the name in every row. */
+	var handle: String? = null
 	/** A real friend's Minecraft profile, for their skin. */
 	var profile: GameProfile? = null
 	/** In your game through KeplerSync's relay, rather than connected straight to this PC. */
@@ -165,11 +167,11 @@ object Sample {
 		Person("Riley", 8, false, "Offline · yesterday", bars = 3),
 		Person("Kai", 10, false, "Offline · 3 days ago"),
 		Person("Mo", 12, false, "Offline · 2 weeks ago"),
-	).sortedBy { it.rank }.toMutableList()
+	).onEach { it.handle = it.name.lowercase() + "_mc" }.sortedBy { it.rank }.toMutableList()
 
 	fun person(name: String) = friends.first { it.name == name }
 
-	val requests = mutableListOf(Person("Pat", 14, true, "Wants to be friends"))
+	val requests = mutableListOf(Person("Pat", 14, true, "Wants to be friends").also { it.handle = "patplays" })
 
 	/** Who's blocked (Settings lists them, with Unblock). */
 	val blocked = mutableListOf<Person>()
@@ -217,12 +219,11 @@ private fun genMods(n: Int, off: Int = 0) = List(n) { i ->
 /** The signed-in KeplerSync account, the same in Atlas and Tandem. */
 object Account {
 	var name = "Robin"
-	var code = "KEPL-4821"
-	/** "minecraft" (skin face) or "discord". */
-	var picture = "minecraft"
-	var discord = true
-	/** The linked Discord account's picture, when it has one. */
-	var discordPicture: String? = null
+	/** The @username: the Minecraft name, which can't be changed here. KeplerSync's once signed in. */
+	var handle = ""
+		get() = field.ifEmpty { minecraftName.lowercase() }
+	/** Anyone with it can send you a friend request. */
+	var link = "https://keplersync.app/f/KEPL4821"
 	var friendsOnline
 		get() = Prefs.get().friendsOnline
 		set(v) { Prefs.get().friendsOnline = v; Prefs.save() }

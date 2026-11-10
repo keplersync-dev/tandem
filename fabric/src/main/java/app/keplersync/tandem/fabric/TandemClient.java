@@ -97,7 +97,7 @@ public final class TandemClient implements ClientModInitializer {
 	 */
 	private static void devRun() {
 		String[][] runs = {{"shots", "start"}, {"synccheck", "syncCheck"}, {"friendcheck", "friendCheck"}, {"leasecheck", "leaseCheck"},
-				{"playcheck", "playCheck"}, {"handoffcheck", "handoffCheck"}, {"historycheck", "historyCheck"}, {"owncheck", "ownCheck"},
+				{"playcheck", "playCheck"}, {"handoffcheck", "handoffCheck"}, {"rescuecheck", "rescueCheck"}, {"crashcheck", "crashCheck"}, {"historycheck", "historyCheck"}, {"owncheck", "ownCheck"},
 				{"roundcheck", "roundCheck"}, {"walkcheck", "walkCheck"}, {"bigcheck", "bigCheck"}, {"shooting", "shoot"}};
 		for (String[] run : runs) {
 			if (!Boolean.getBoolean("tandem." + run[0])) continue;

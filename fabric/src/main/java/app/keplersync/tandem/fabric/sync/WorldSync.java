@@ -262,6 +262,17 @@ public final class WorldSync {
 		return f;
 	}
 
+	/** Dev checks only: holds a transfer (-Dtandem.downloadPauseMs, -Dtandem.uploadPauseMs) so it can be caught midway. */
+	private static void devPause(String what) {
+		long ms = Long.getLong("tandem." + what + "PauseMs", 0L);
+		if (ms <= 0) return;
+		try {
+			Thread.sleep(ms);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+	}
+
 	private interface Job {
 		void run(Transfer t) throws Exception;
 	}
@@ -345,6 +356,7 @@ public final class WorldSync {
 	public Transfer getLatest(String levelId, String worldId, String name) {
 		return transfer(name, t -> {
 			long start = System.nanoTime();
+			devPause("download");
 			sync().getLatest(folder(levelId), worldId, t.progress);
 			TandemClient.LOG.info("Tandem got the latest {}: {} MB downloaded in {} s", name, t.progress.done() >> 20, (System.nanoTime() - start) / 1_000_000_000);
 		});
@@ -373,6 +385,7 @@ public final class WorldSync {
 			}
 		}, 2, 2, java.util.concurrent.TimeUnit.SECONDS);
 		try {
+			devPause("upload");
 			sync().upload(dir, t.progress);
 		} finally {
 			report.cancel(false);

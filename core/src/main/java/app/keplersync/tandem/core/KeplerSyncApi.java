@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * KeplerSync's REST API, as Tandem uses it. Signing in happens the way a Minecraft server checks a joining player:
@@ -59,13 +61,12 @@ public final class KeplerSyncApi {
 		public String minecraftUuid;
 		public String minecraftUsername;
 		public String friendCode;
+		/** Anyone with it can send this account a friend request; the code is its secret part. */
+		public String friendLink;
 		public List<Identity> identities = new ArrayList<>();
-		/** "minecraft" or "discord": the picture friends see. */
-		public String avatarSource;
-		public String discordAvatarUrl;
 	}
 
-	/** A way this account signs in: "minecraft" or "discord". */
+	/** A way this account signs in: "minecraft". */
 	public static final class Identity {
 		public String provider;
 	}
@@ -246,11 +247,37 @@ public final class KeplerSyncApi {
 		return out != null ? out : new ArrayList<FriendRequest>();
 	}
 
-	/** Sends a friend request to whoever has this friend code. */
-	public void addFriend(String code) throws IOException {
+	/** Sends a friend request to [who]: a Minecraft name, or a friend link someone sent. */
+	public void addFriend(String who) throws IOException {
 		JsonObject body = new JsonObject();
-		body.addProperty("code", code.trim().toUpperCase(Locale.ROOT).replace("-", "").replace(" ", ""));
+		String code = linkCode(who);
+		if (code != null) body.addProperty("code", code);
+		else body.addProperty("name", name(who));
 		call("POST", "/friends/requests", body.toString());
+	}
+
+	/** Who [who] is (a Minecraft name, or a friend link), before sending them a request. */
+	public User findFriend(String who) throws IOException {
+		String code = linkCode(who);
+		String path = code != null ? "/friend-codes/" + code : "/friend-names/" + name(who);
+		return Io.GSON.fromJson(call("GET", path, null), User.class);
+	}
+
+	private static final Pattern LINK = Pattern.compile("(?:/f/|atlas://friend/)([0-9A-Za-z-]+)/?$");
+
+	/** The code in a pasted friend link, or null when [who] isn't one: then it's a Minecraft name. */
+	static String linkCode(String who) {
+		Matcher m = LINK.matcher(who.trim());
+		if (!m.find()) return null;
+		String code = m.group(1).toUpperCase(Locale.ROOT).replace("-", "");
+		return code.length() == 8 ? code : null;
+	}
+
+	/** A Minecraft name as typed: without spaces or the @ in front. Only letters, digits and _ reach the path. */
+	private static String name(String who) {
+		String n = who.trim();
+		if (n.startsWith("@")) n = n.substring(1);
+		return n.replaceAll("[^A-Za-z0-9_]", "");
 	}
 
 	public void accept(String userId) throws IOException {
@@ -280,11 +307,10 @@ public final class KeplerSyncApi {
 		call("DELETE", "/blocks/" + userId, null);
 	}
 
-	/** What friends see in Atlas and Tandem: a new display name, a picture ("minecraft" or "discord"), or both. */
-	public Me updateProfile(String displayName, String avatarSource) throws IOException {
+	/** A new display name: what friends see in Atlas and Tandem. The @username is the Minecraft name. */
+	public Me updateProfile(String displayName) throws IOException {
 		JsonObject body = new JsonObject();
-		if (displayName != null) body.addProperty("displayName", displayName);
-		if (avatarSource != null) body.addProperty("avatarSource", avatarSource);
+		body.addProperty("displayName", displayName);
 		// POST rather than PATCH: Java's own HTTP client can't send PATCH, so the server takes both.
 		return Io.GSON.fromJson(call("POST", "/me", body.toString()), Me.class);
 	}
@@ -374,6 +400,30 @@ public final class KeplerSyncApi {
 		JsonObject body = new JsonObject();
 		body.addProperty("to", userId);
 		call("POST", "/worlds/" + worldId + "/handoff", body.toString());
+	}
+
+	/** This player's download of [worldId] is slow: asks [userId], in the world too, to host it instead (A2). */
+	public void requestHost(String worldId, String userId) throws IOException {
+		JsonObject body = new JsonObject();
+		body.addProperty("to", userId);
+		call("POST", "/worlds/" + worldId + "/host-request", body.toString());
+	}
+
+	/** The owner stops waiting for an upload of [worldId] that stalled (no heartbeat for 90 s): it's free to play from the last one. */
+	public void carryOn(String worldId) throws IOException {
+		call("POST", "/worlds/" + worldId + "/carry-on", "{}");
+	}
+
+	/** Can't host [worldId] for [userId], who asked: they hear, and stop waiting. */
+	public void declineHost(String worldId, String userId) throws IOException {
+		JsonObject body = new JsonObject();
+		body.addProperty("from", userId);
+		call("POST", "/worlds/" + worldId + "/host-request/decline", body.toString());
+	}
+
+	/** This player won't host a world handed to them: it's freed instead, and whoever waited to join them hears. */
+	public void declineHandoff(String worldId) throws IOException {
+		call("POST", "/worlds/" + worldId + "/handoff/decline", "{}");
 	}
 
 	/** Send logs: Tandem's own lines and the game's errors, with what the player says happened. User names, links'
@@ -525,24 +575,7 @@ public final class KeplerSyncApi {
 		call("DELETE", "/storage/own", null);
 	}
 
-	/** Where the browser starts linking Discord; it comes back to http://127.0.0.1:[port]/callback with a code. */
-	public String discordStart(int port, String challenge) {
-		return base + "/auth/discord/start?port=" + port + "&challenge=" + challenge;
-	}
-
-	/** Adds the Discord account the browser just signed in to, with the code it brought back. */
-	public Me linkDiscord(String code, String verifier) throws IOException {
-		JsonObject body = new JsonObject();
-		body.addProperty("code", code);
-		body.addProperty("verifier", verifier);
-		return Io.GSON.fromJson(call("POST", "/me/identities", body.toString()), Me.class);
-	}
-
-	public Me unlink(String provider) throws IOException {
-		return Io.GSON.fromJson(call("DELETE", "/me/identities/" + provider, null), Me.class);
-	}
-
-	/** A new friend code; the old one stops working. */
+	/** A new friend link; the old one stops working. */
 	public Me newFriendCode() throws IOException {
 		return Io.GSON.fromJson(call("POST", "/me/friend-code/reset", "{}"), Me.class);
 	}
