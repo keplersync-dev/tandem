@@ -31,7 +31,7 @@ Please consider supporting the project by starring the repository, or by donatin
 
 ## Support
 
-If you need help or have any questions, open a [GitHub issue](../../issues) or email <support@keplersync.app>.
+Ask for help or questions in the [KeplerSync Discord](https://discord.gg/mXJnFe65Eq), and report bugs in [GitHub issues](../../issues). For anything private, email <support@keplersync.app>.
 
 ## License
 
