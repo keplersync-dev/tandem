@@ -660,11 +660,46 @@ fun Dialogs.leaveJust(friends: List<Person>, world: String, leave: () -> Unit, s
 	}
 }
 
+/** How much of an upload after leaving has gone: "12 MB of 19 MB uploaded", or a percentage before it knows. */
+private fun gotText(run: Prog) = (run as? Moving)?.bytes?.let { (done, total) -> tr("tandem.x_of_y_uploaded", bytesText(done), bytesText(total)) }
+	?: tr("tandem.uploaded", (run.value * 100).roundToInt())
+
+private fun timeLeft(run: Prog) = leftText(run.secondsLeft)?.let { tr("tandem.about_x_left", it) } ?: ""
+
+/**
+ * After leaving a synced world, over the title screen: the session uploading, who takes over, and to keep Minecraft
+ * open. Hide leaves it going in the background, on the Tandem button; it closes by itself once the upload is done.
+ */
+fun Dialogs.leaving() {
+	val (world, to, run) = Sample.background ?: return
+	val friend = to?.let { n -> Sample.friends.firstOrNull { it.name == n } }
+	layers.openDialog {
+		val got = Label(gotText(run), 13, Weight.REGULAR, Tok.muted)
+		val left = Label(timeLeft(run), 13, Weight.REGULAR, Tok.muted)
+		val title = if (to != null) tr("tandem.handing_off_to", world, to) else tr("tandem.saving_to_the_cloud", world)
+		val sub = if (to != null) tr("tandem.takes_over_as_soon_as_this_is", to) else tr("tandem.your_friends_get_this_session_as_soon")
+		val box = dialog(
+			500,
+			who(if (friend != null) Face({ friend.skin }, 48, 10, null, Tok.panel) else mic("up", Tok.violet), title, sub, 500),
+			progress(false, 500, { run.value }, got, left),
+			safe("clock", tr("tandem.keep_minecraft_open_until_its_done"), 500, Tok.violet),
+			actions(500, Button(tr("tandem.hide"), Kind.FILLED, Size.NORMAL, null, Tok.panel) { layers.closeDialog() }),
+		)
+		Ticker {
+			got.text = gotText(run)
+			left.text = timeLeft(run)
+			if (Sample.background == null) layers.closeDialog()
+		} childOf box
+		box
+	}
+}
+
 /** Quitting Minecraft while your session is still uploading: Quit when done, or Quit anyway (it finishes next time). */
 fun Dialogs.quitting(quit: () -> Unit) {
 	val (world, to, run) = Sample.background ?: return quit()
 	layers.openDialog {
 		val pct = Label(tr("tandem.uploaded", (run.value * 100).roundToInt()), 13, Weight.REGULAR, Tok.muted)
+		val left = Label(timeLeft(run), 13, Weight.REGULAR, Tok.muted)
 		lateinit var whenDone: Button
 		whenDone = Button(if (Sample.quitWhenDone) tr("tandem.quitting_when_done") else tr("tandem.quit_when_done"), Kind.FILLED, Size.NORMAL, null, Tok.panel) {
 			Sample.quitWhenDone = true; whenDone.text = tr("tandem.quitting_when_done"); whenDone.enabled = false
@@ -676,12 +711,13 @@ fun Dialogs.quitting(quit: () -> Unit) {
 				if (to != null) tr("tandem.handing_off_to", world, to) else tr("tandem.saving_to_the_cloud", world),
 				if (to != null) tr("tandem.takes_over_as_soon_as_this_is", to) else tr("tandem.your_friends_get_this_session_as_soon"), 500,
 			),
-			progress(false, 500, { run.value }, pct, Label(tr("tandem.about_5_s_left"), 13, Weight.REGULAR, Tok.muted)),
+			progress(false, 500, { run.value }, pct, left),
 			wrapped(tr("tandem.if_you_quit_now_your_session_is", world), 13, Weight.REGULAR, Tok.muted, 500.tp, 1.5f),
 			actions(500, Button(tr("tandem.quit_anyway"), Kind.OUTLINE, Size.NORMAL, null, Tok.panel) { quit() }, whenDone),
 		)
 		Ticker {
 			pct.text = tr("tandem.uploaded", (run.value * 100).roundToInt())
+			left.text = timeLeft(run)
 			if (Sample.background == null) { layers.closeDialog(); if (Sample.quitWhenDone) quit() }
 		} childOf box
 		box

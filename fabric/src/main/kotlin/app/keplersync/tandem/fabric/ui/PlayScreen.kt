@@ -202,7 +202,7 @@ class PlayScreen : TandemScreen() {
 		// is joined from the friends list. Sample worlds (no cloud id) keep their rows.
 		val shown = Sample.worlds.filter { it.state != WorldState.OTHER || it.levelId != null || it.cloudId == null }
 		val (mine, other) = shown.partition { it.state != WorldState.OTHER }
-		val banners = listOfNotNull(update(), if (!Sample.reachable) unreachable() else null)
+		val banners = listOfNotNull(uploading(), update(), if (!Sample.reachable) unreachable() else null)
 		banners.forEachIndexed { i, b -> b.constrain { x = 24.at; y = if (i == 0) 22.at else SiblingConstraint(12.tp) } childOf list }
 		heading(tr("tandem.worlds"), tr("tandem.pick_one_to_play_invite_friends_from")).constrain {
 			x = 24.at; y = if (banners.isEmpty()) 22.at else SiblingConstraint(12.tp)
@@ -346,6 +346,28 @@ class PlayScreen : TandemScreen() {
 		// Drawn from the download's progress every frame, so it moves without rebuilding the screen.
 		if (bar != null) Progress(false, 6, bar).constrain { x = (15 + 18 + 10).at; y = SiblingConstraint(8.tp); width = room.pixels } childOf b
 		b.constrain { height = basicHeightConstraint { t.getHeight() + (if (bar == null) 26 else 40).tp } }
+		return b
+	}
+
+	/** A session uploading after you left: one line above Worlds, its bar along the bottom edge, gone once it's done. */
+	private fun uploading(): UIComponent? {
+		val (world, to, run) = Sample.background ?: return null
+		val b = object : Box(10.tp, Tok.live, Tok.alpha(Tok.violet, 0.5)) {
+			override fun draw(matrixStack: UMatrixStack) {
+				super.draw(matrixStack)
+				val l = getLeft() + 10.tp; val r = getRight() - 10.tp; val y = getBottom() - 4.tp
+				rounded(matrixStack, l, y, l + (r - l) * run.value.coerceIn(0f, 1f), y + 3.tp, 1.5f.tp, Tok.violet)
+			}
+		}.constrain { width = 100.percent - 48.at; height = 44.at }
+		val friend = to?.let { n -> Sample.friends.firstOrNull { it.name == n } }
+		val lead = if (friend != null) Face({ friend.skin }, 24, 6, null, Tok.live) else Icon("up", 18, Tok.violet)
+		val keep = Label(tr("tandem.keep_minecraft_open"), 12.5, Weight.REGULAR, Tok.sec).constrain { x = 14.fromEnd; y = CenterConstraint() } childOf b
+		val title = Label(if (to != null) tr("tandem.handing_off_to", world, to) else tr("tandem.saving_to_the_cloud", world), 13.5, Weight.SEMIBOLD)
+		val state = Live(13, Weight.REGULAR, Tok.muted) { uploadedText(run) }
+		row(10, lead, title, state).constrain { x = 12.at; y = CenterConstraint() } childOf b
+		// A long world name ends in an ellipsis before the progress and Keep Minecraft open.
+		title.room = { keep.getLeft() - 16.tp - state.getWidth() - 10.tp - title.getLeft() }
+		Ticker { if (Sample.background == null) build() } childOf b
 		return b
 	}
 

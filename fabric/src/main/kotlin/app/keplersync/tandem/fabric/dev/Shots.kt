@@ -90,6 +90,9 @@ object Shots {
 		steps += { ++n > ticks }
 	}
 
+	/** Back at the title screen, or at the popup over it that an upload after leaving shows. */
+	private fun atTitle(mc: Minecraft) = mc.screen is TitleScreen || mc.screen is DialogScreen
+
 	private fun keys(vararg k: Int) = step { mc -> k.forEach { press(mc, it) } }
 
 	// The mouse handler's own callbacks (private, so by reflection; dev runs use Mojang's names), so clicks take the
@@ -336,10 +339,10 @@ object Shots {
 		step { click(it, panel("handoff")) }
 		step { shot(it, "d3-leave-10") }
 		keys(GLFW.GLFW_KEY_ESCAPE)
+		step { Sample.person("Sam").hostProblem = null }
 		step { PausePanel.devMode = PausePanel.Mode.JUST_PLAY; reinit(it) }
 		step { PausePanel.devJoin("Jules"); reinit(it) }
 		step { clickWidget(it, PausePanel.devQuit!!) }
-		step { Sample.person("Sam").hostProblem = null }
 		step { shot(it, "d3-leave-just") }
 		keys(GLFW.GLFW_KEY_ESCAPE)
 		step { click(it, panel("second")) }
@@ -351,11 +354,29 @@ object Shots {
 		keys(GLFW.GLFW_KEY_ESCAPE)
 		step { PausePanel.devMode = null; reinit(it) }
 		step { clickWidget(it, PausePanel.devQuit!!) }
+		// Long enough to shoot the popup, the menu, the Tandem screen and quitting while it uploads, done before busy-title.
+		step { Sample.background = Sample.background?.let { (w, to, _) -> Triple(w, to, app.keplersync.tandem.fabric.ui.Timed(0.3f, 12f)) } }
+		// Leaving says what's uploading, over the title screen; Escape hides it.
+		steps += { it.screen is DialogScreen }
+		sleep(10)
+		step { shot(it, "d3-leaving") }
+		keys(GLFW.GLFW_KEY_ESCAPE)
 		steps += { it.screen is TitleScreen }
-		sleep(20)
+		sleep(5)
 		step { shot(it, "title-uploading") }
+		step { it.setScreen(PlayScreen()) }
+		sleep(10)
+		step { shot(it, "play-uploading") }
+		keys(GLFW.GLFW_KEY_ESCAPE)
+		steps += { it.screen is TitleScreen }
 		step { mc -> clickWidget(mc, Screens.getButtons(mc.screen!!).first { (it.message.contents as? TranslatableContents)?.key == "menu.quit" }) }
 		step { shot(it, "d3-quitting") }
+		keys(GLFW.GLFW_KEY_ESCAPE)
+		steps += { it.screen is TitleScreen }
+		// Closing the window (its X, Alt+F4) asks the same, and Minecraft stays open.
+		step { GLFW.glfwSetWindowShouldClose(it.window.window, true) }
+		sleep(5)
+		step { shot(it, "d3-quitting-window") }
 		keys(GLFW.GLFW_KEY_ESCAPE)
 		sleep(140)
 		step { busy = true; reinit(it) }
@@ -519,7 +540,7 @@ object Shots {
 				steps += { !d.offline }
 				step { check("back online by itself", true) }
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				steps += { d.background?.done() == true }
 				step { check("the session uploaded once KeplerSync was back", d.background?.future?.isCompletedExceptionally == false) }
 				// KeplerSync can't be reached at all.
@@ -848,11 +869,15 @@ object Shots {
 					}
 				}
 				step { check("Sam came in with his own empty inventory, the world's game mode and no commands", samStart) }
+				waitFor(200) { sam?.let(HostFit::heardMsPerTick) != null }
+				step { check("Sam's Tandem said how well his PC could host: he never has, and nothing says he'd struggle", sam?.let(HostFit::heardMsPerTick) == 0f && sam?.let(HostFit::problem) == null) }
 				step { app.keplersync.tandem.fabric.play.WorldRules.of(server())!!.setOperator(sam, true) }
 				var op = false
 				waitFor(600) { server().executeBlocking { op = server().getProfilePermissions(player("Sam")!!.gameProfile) == 3 }; op }
 				step { check("made Sam an operator", op); mark("alex-made-sam-op") }
 				steps += { marked("sam-is-op") }
+				// Hosting long enough that Tandem keeps how Hand Base ran (half a minute of samples, from the 10th second).
+				sleep(600)
 				// Leaving with Sam in the game asks who takes over.
 				step { it.pauseGame(false) }
 				sleep(10)
@@ -866,18 +891,14 @@ object Shots {
 					it.level?.disconnect()
 					it.disconnect(TitleScreen())
 				}
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				waitFor(2400) { d.background?.done() == true }
 				step { check("Alex's session uploaded", d.background?.future?.isCompletedExceptionally == false) }
-				waitFor(200) { sam?.let(HostFit::heardMsPerTick) != null }
-				step { check("Sam's Tandem said how well his PC could host: he never has, and nothing says he'd struggle", sam?.let(HostFit::heardMsPerTick) == 0f && sam?.let(HostFit::problem) == null) }
 				waitFor(4800) { marked("sam-hosting") }
 				play()
 				waitFor(600) { hosted() }
 				step { shot(it, "hand-a-list") }
 				steps += { inView(it, "button-Hand Base") }
-				// Hosting long enough that Tandem keeps how Hand Base ran (half a minute of samples, from the 10th second).
-				sleep(600)
 				step { click(it, target(it, "button-Hand Base")) }
 				waitFor(1200) { it.singleplayerServer == null && it.player != null && others() > 0 }
 				sleep(40)
@@ -914,9 +935,12 @@ object Shots {
 				step { check("has every command as the operator hosting", server().getProfilePermissions(it.player!!.gameProfile) == 4) }
 				waitFor(600) { app.keplersync.tandem.fabric.play.Hosting.get()?.worldId != null }
 				step { check("opened it to its members", app.keplersync.tandem.fabric.play.Hosting.get()?.worldId != null); mark("sam-hosting") }
+				fun alexRan() = mc.connection?.getPlayerInfo("Alex")?.profile?.id?.let(HostFit::heardMsPerTick)
+				waitFor(4800) { alexRan() != null }
+				step { check("Alex's Tandem said how Hand Base ran when he hosted it", (alexRan() ?: 0f) > 0f) }
 				waitFor(4800) { marked("alex-done") }
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				// Straight into Tandem while it uploads: the world he took over in the game is linked to its folder here
 				// (its own picture), and shows his upload, not "Ready" from Alex's last session.
 				play()
@@ -935,9 +959,6 @@ object Shots {
 			}
 			step { it.stop() }
 		}
-				fun alexRan() = mc.connection?.getPlayerInfo("Alex")?.profile?.id?.let(HostFit::heardMsPerTick)
-				waitFor(4800) { alexRan() != null }
-				step { check("Alex's Tandem said how Hand Base ran when he hosted it", (alexRan() ?: 0f) > 0f) }
 		ClientTickEvents.END_CLIENT_TICK.register(::tick)
 	}
 
@@ -970,7 +991,7 @@ object Shots {
 			}
 			fun leave() {
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 			}
 			if (me == "Alex") {
 				step { openWorld(it, "tandem-rescue-a", "Rescue Base", GameType.CREATIVE) }
@@ -1125,7 +1146,7 @@ object Shots {
 				waitFor(6000) { hosting() }
 				step { check("took over Crash Base and hosts it", hosting()) }
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				waitFor(2400) { d.background?.done() == true }
 			}
 			step { it.stop() }
@@ -1168,7 +1189,7 @@ object Shots {
 			}
 			fun leave() {
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				waitFor(2400) { d.background?.done() == true }
 			}
 			fun playIt() {
@@ -1330,7 +1351,7 @@ object Shots {
 			}
 			fun leave() {
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				waitFor(2400) { d.background?.done() == true }
 			}
 			fun playIt(name: String = "Own Base") {
@@ -1474,7 +1495,7 @@ object Shots {
 		fun shared() = Sample.worlds.firstOrNull { it.name == "Shared Base" }
 		fun leave(tag: String) {
 			step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-			steps += { it.screen is TitleScreen }
+			steps += { atTitle(it) }
 			sleep(10)
 			step { shot(it, "sync-$tag-title") }
 			steps += { d.background?.done() == true }
@@ -1577,7 +1598,7 @@ object Shots {
 			}
 			fun leave() {
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				waitFor(2400) { d.background?.done() == true }
 			}
 			if (me == "Alex") {
@@ -1653,7 +1674,7 @@ object Shots {
 				step { check("isn't toasted again for the invite he used", Ingame.devInvite() == null) }
 				waitFor(2400) { marked("alex-checked") }
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()); mark("sam-left") }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				waitFor(4800) { marked("alex-free") }
 				play()
 				waitFor(600) { world()?.state == WorldState.READY }
@@ -1758,7 +1779,7 @@ object Shots {
 				sleep(40)
 				step { shot(it, "walk-full") }
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				// The same world from the Play list: the Sync dialog says it won't fit and Sync is off, before any copy.
 				step { it.setScreen(PlayScreen()) }
 				var wait = 0
@@ -1784,7 +1805,7 @@ object Shots {
 				steps += { it.player != null && it.screen == null || ++n3 > 1200 }
 				step { check("and it still opens here to play", it.player != null) }
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				step { it.setScreen(TitleScreen()) }
 				step { mark("alex-done") }
 			}
@@ -1866,7 +1887,7 @@ object Shots {
 				sleep(900)
 				step { check("checkpoints kept the world under 2 s too (longest ${longest / 1_000_000} ms)", longest < 2_000_000_000L) }
 				step { t0 = System.nanoTime(); it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				n = 0
 				steps += { d.background?.let { b -> b.world == "tandem-big" && b.done() } == true || ++n > 72_000 }
 				step { check("the last session uploaded in ${secs(t0)}", d.background?.world == "tandem-big" && d.background?.future?.isCompletedExceptionally == false); mark("alex-done") }
@@ -1900,7 +1921,7 @@ object Shots {
 				step { check("got all of Big Base and was in it in ${secs(t0)}", it.player != null) }
 				sleep(100)
 				step { it.level?.disconnect(); it.disconnect(TitleScreen()) }
-				steps += { it.screen is TitleScreen }
+				steps += { atTitle(it) }
 				n = 0
 				steps += { d.background?.done() == true || ++n > 72_000 }
 				step { mark("sam-done") }

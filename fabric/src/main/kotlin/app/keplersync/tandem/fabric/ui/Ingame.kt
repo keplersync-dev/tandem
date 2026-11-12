@@ -21,9 +21,7 @@ import net.fabricmc.loader.api.FabricLoader
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback
-import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents
 import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents
-import net.fabricmc.fabric.api.client.screen.v1.Screens
 import app.keplersync.tandem.core.KeplerSyncApi
 import net.minecraft.ChatFormatting
 import app.keplersync.tandem.fabric.play.Joining
@@ -33,7 +31,6 @@ import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.screens.DatapackLoadFailureScreen
 import net.minecraft.client.gui.screens.DisconnectedScreen
 import net.minecraft.client.gui.screens.RecoverWorldDataScreen
-import net.minecraft.client.gui.components.AbstractButton
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.TitleScreen
 import net.minecraft.client.resources.sounds.SimpleSoundInstance
@@ -41,7 +38,6 @@ import net.minecraft.client.resources.sounds.SoundInstance
 import net.minecraft.network.chat.Component
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.sounds.SoundSource
-import net.minecraft.network.chat.contents.TranslatableContents
 import org.lwjgl.glfw.GLFW
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.math.max
@@ -54,6 +50,11 @@ import kotlin.math.max
  */
 object Ingame {
 	private var spaceChecked: WorldSync.Transfer? = null
+	/** The world whose upload after leaving was last shown over the title screen. */
+	private var leavingShown: String? = null
+	/** Quitting with a session still uploading: the question showing, then whether the player said Quit anyway. */
+	private var asking: Screen? = null
+	private var quitAnyway = false
 
 	/** Sam's invite to Create Nights, showing until joined, dismissed or 30 seconds pass. */
 	private var invite: Long? = null
@@ -234,8 +235,10 @@ object Ingame {
 		WorldSync.get()?.let { if (it.server) Sample.offline = it.offline }
 		// A real upload after leaving a world shows on the title tile like the sample's.
 		WorldSync.get()?.background?.let { t ->
-			if (!t.done()) { if (Sample.background?.first != t.world) Sample.background = Triple(t.world, null, Moving(t)) }
-			else if (Sample.background?.first == t.world) Sample.background = null
+			// The upload knows the world's folder; the player knows its name.
+			val name = Sample.worlds.firstOrNull { it.levelId == t.world }?.name ?: t.world
+			if (!t.done()) { if (Sample.background?.first != name) Sample.background = Triple(name, PausePanel.handingTo.takeIf { name == PausePanel.handedWorld }, Moving(t)) }
+			else if (Sample.background?.first == name) Sample.background = null
 			// KeplerSync refused it for space: storage full, over the title screen.
 			if (t.done() && t !== spaceChecked) {
 				spaceChecked = t
@@ -244,8 +247,12 @@ object Ingame {
 			}
 		}
 		val bg = Sample.background
+		// Once for each upload after leaving, over the title screen: what's uploading, and to keep Minecraft open.
+		if (bg == null) leavingShown = null
+		else if (bg.first != leavingShown && mc.screen is TitleScreen) { leavingShown = bg.first; mc.setScreen(DialogScreen { it.leaving() }) }
 		if (bg != null && bg.third.value >= 1f) {
 			Sample.background = null
+			notice(if (bg.second != null) tr("tandem.can_host_now", bg.second, bg.first) else tr("tandem.is_uploaded", bg.first), tr("tandem.you_can_close_minecraft_now"))
 			Sample.worlds.firstOrNull { it.name.equals(bg.first, true) }?.let { w ->
 				if (bg.second != null) { w.state = WorldState.HOSTED; w.who = bg.second!! } else { w.state = WorldState.READY; w.who = "you"; w.ago = tr("tandem.just_now") }
 			}
@@ -295,27 +302,23 @@ object Ingame {
 		}) { d.getLatest(Sample.world(tr("tandem.create_nights"))) }
 	}
 
-	/**
-	 * The title screen, after Tandem's tile is placed: quitting Minecraft while a session is still uploading asks first
-	 * (Quit when done, or Quit anyway).
-	 */
+	/** The title screen, after Tandem's tile is placed: an invite that arrives there shows too; J joins. */
 	@JvmStatic
 	fun onTitle(screen: Screen) {
-		val mc = Minecraft.getInstance()
-		val quit = Screens.getButtons(screen).firstOrNull { (it.message.contents as? TranslatableContents)?.key == "menu.quit" } as? AbstractButton ?: return
-		fun ask(): Boolean {
-			if (Sample.background == null) return false
-			mc.setScreen(DialogScreen { it.quitting { mc.stop() } })
-			return true
-		}
-		// An invite that arrives at the title screen shows here too; J joins.
 		hudOn(screen, banner = true)
-		ScreenMouseEvents.allowMouseClick(screen).register { _, x, y, button ->
-			Guard.get("quit check", true) { !(button == 0 && quit.isMouseOver(x, y) && ask()) }
-		}
-		ScreenKeyboardEvents.allowKeyPress(screen).register { s, key, _, _ ->
-			Guard.get("quit check", true) { !((key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_SPACE) && s.focused === quit && ask()) }
-		}
+	}
+
+	/**
+	 * Minecraft is about to close (Quit Game, the window's X, Alt+F4) while a session still uploads: asks first, Quit when
+	 * done or Quit anyway, and returns true to keep it open. From MinecraftMixin.
+	 */
+	@JvmStatic
+	fun askBeforeQuitting(): Boolean {
+		val mc = Minecraft.getInstance()
+		if (quitAnyway || Sample.background == null) return false
+		GLFW.glfwSetWindowShouldClose(mc.window.window, false)
+		if (mc.screen !== asking) asking = DialogScreen { it.quitting { quitAnyway = true; mc.stop() } }.also(mc::setScreen)
+		return true
 	}
 
 	/** The HUD over [screen], with clicks on the invite toast's buttons. */

@@ -71,6 +71,10 @@ object PausePanel {
 
 	/** Dev screenshots: force a mode, add a player as if they'd joined, and things the runner clicks. */
 	var devMode: Mode? = null
+
+	/** The last world handed off and who it went to: its upload after leaving says who takes over. */
+	var handedWorld: String? = null
+	var handingTo: String? = null
 	/** Dev screenshots: who owns the world ("You" or a player's name), and the long line under the title. */
 	var devOwner: String? = null
 	var devLongLine = false
@@ -476,7 +480,7 @@ object PausePanel {
 		WorldSync.get()!!.async { account.api.handoff(rules.worldId, user) }.whenComplete { _, e ->
 			mc.execute {
 				if (e != null) layers.toast(tr("tandem.couldnt_hand_off_to", to.name), (e.cause ?: e).message ?: tr("tandem.try_again_2"), "warn")
-				else leave()
+				else { handingTo = to.name; handedWorld = world; leave() }
 			}
 		}
 	}

@@ -82,13 +82,22 @@ fun actions(width: Int, vararg buttons: UIComponent): UIComponent {
 /** Something filling up from 0 to 1: sample progress on a timer, or a real transfer ([Moving]). */
 interface Prog {
 	val value: Float
+	/** Seconds until done at the speed so far, or -1 before that's known. */
+	val secondsLeft: Long get() = -1
 }
 
 class Timed(private val from: Float, private val secs: Float) : Prog {
 	private val start = System.currentTimeMillis()
 	var finished = false
 	override val value get() = min(1f, from + (1 - from) * (System.currentTimeMillis() - start) / (secs * 1000))
+	override val secondsLeft get() = ((1 - value) / (1 - from) * secs).toLong()
 }
+
+/** "20 s" or "3 min", or null before it's known and in its last second. */
+fun leftText(secs: Long): String? = if (secs < 1) null else if (secs < 60) tr("tandem.n_s", secs) else tr("tandem.n_min", (secs + 59) / 60)
+
+/** An upload after leaving, in a few words: "63% · about 20 s left". */
+fun uploadedText(run: Prog) = "${(run.value * 100).roundToInt()}%" + (leftText(run.secondsLeft)?.let { tr("tandem.about_left", it) } ?: "")
 
 /** The sample's dialogs. [changed] rebuilds the screen after the sample changes. */
 class Dialogs(val layers: Layers, val changed: () -> Unit) {

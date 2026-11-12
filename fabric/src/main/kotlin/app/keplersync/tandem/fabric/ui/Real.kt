@@ -38,6 +38,9 @@ fun bytesText(bytes: Long) = if (bytes >= 1L shl 30) "%.2f".format(bytes / (1L s
 /** A transfer's progress as the screens read it: it only shows full once the cloud has the snapshot. */
 class Moving(private val t: WorldSync.Transfer) : Prog {
 	override val value get() = if (t.done()) 1f else min(0.99f, t.progress.fraction())
+	override val secondsLeft get() = if (t.done()) 0 else t.progress.secondsLeft()
+	/** Bytes sent and to send, once the upload knows. */
+	val bytes get() = t.progress.let { p -> if (p.total() > 0) p.done() to p.total() else null }
 	/** Waiting to try again because KeplerSync can't be reached. */
 	val waiting get() = !t.done() && t.waiting
 }
@@ -625,6 +628,7 @@ class RealPlay(private val dialogs: Dialogs, private val changed: () -> Unit) {
 		var stopped = false
 		dialogs.takingOver(from, w.name, { status }, { pct }) { stopped = true; decline(w) }
 		val until = System.currentTimeMillis() + 30 * 60_000
+		val stall = Stall()
 		fun poll() {
 			later(ask { d.cloud.lease(w.cloudId!!) }) { l ->
 				if (stopped) return@later
@@ -632,6 +636,11 @@ class RealPlay(private val dialogs: Dialogs, private val changed: () -> Unit) {
 					layers.closeDialog()
 					// KeplerSync gave the lease here: it's this game's, not another game's.
 					take(w)
+				} else if (l.state == Cloud.UPLOADING && stall.stopped(l)) {
+					// Their game closed before handing it over: said straight away, not after a frozen bar's half hour.
+					stopped = true
+					layers.closeDialog()
+					quitBeforeDone(w, l)
 				} else if (System.currentTimeMillis() > until) {
 					layers.closeDialog()
 					layers.toast(tr("tandem.s_game_didnt_finish_saving", from, w.name), tr("tandem.try_play_again_in_a_little_while"), "warn")
@@ -741,25 +750,42 @@ class RealPlay(private val dialogs: Dialogs, private val changed: () -> Unit) {
 	private fun waitFor(w: World) {
 		var pct = w.pct / 100f
 		var free = false
+		val stall = Stall()
 		dialogs.waitingFor(w, { pct }) { free }
 		fun poll() {
 			later(ask { d.cloud.lease(w.cloudId!!) }) { l ->
 				if (!layers.busy) return@later
 				if (l == null || l.state != Cloud.UPLOADING) { free = true; layers.closeDialog(); RealWorlds.refresh(changed); play(w) }
-				// An upload's lease lasts a day past its last heartbeat (every 30 s): none for 90 s, and they quit before it
-				// finished (A4). It finishes when they're back; the day running out lets the group carry on (A5).
-				else if (System.currentTimeMillis() - (l.expires - DAY) > 90_000) {
-					free = true
-					layers.closeDialog()
-					later(ask { w.head?.let { h -> runCatching { d.cloud.snapshot(w.cloudId!!, h) }.getOrNull()?.time } }) { t ->
-						val owner = if (w.mine) { { carryOn(w) } } else null
-						dialogs.waitQuit(w, l.progress, RealWorlds.at(l.expires), t?.let(RealWorlds::ago) ?: tr("tandem.its_last_save"), owner)
-					}
-				}
+				// They quit before it finished (A4). It finishes when they're back; the day running out lets the group carry on (A5).
+				else if (stall.stopped(l)) { free = true; layers.closeDialog(); quitBeforeDone(w, l) }
 				else { pct = l.progress; soon(::poll) }
 			}
 		}
 		poll()
+	}
+
+	/** Told once an upload stopped: it finishes when its player is back, and the owner can play from the last upload. */
+	private fun quitBeforeDone(w: World, l: Cloud.Lease) {
+		later(ask { w.head?.let { h -> runCatching { d.cloud.snapshot(w.cloudId!!, h) }.getOrNull()?.time } }) { t ->
+			val owner = if (w.mine) { { carryOn(w) } } else null
+			dialogs.waitQuit(w, l.progress, RealWorlds.at(l.expires), t?.let(RealWorlds::ago) ?: tr("tandem.its_last_save"), owner)
+		}
+	}
+
+	/**
+	 * Whether an upload's game is gone. It reports its progress every 2 seconds, each pushing the lease's expiry on a day:
+	 * 15 seconds of the expiry not moving, timed on this PC's clock, which needn't agree with KeplerSync's. A lease that
+	 * last moved over 90 seconds ago by KeplerSync's clock is gone straight away, for a friend who looks much later.
+	 */
+	private inner class Stall {
+		private var seen = -1L
+		private var since = System.currentTimeMillis()
+
+		fun stopped(l: Cloud.Lease): Boolean {
+			val now = System.currentTimeMillis()
+			if (l.expires != seen) { seen = l.expires; since = now }
+			return now - since > 15_000 || now - (l.expires - DAY) > 90_000
+		}
 	}
 
 	/** The owner stops waiting for a friend's upload that stalled: KeplerSync lets the world go, and it opens from the last one. */

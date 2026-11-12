@@ -44,6 +44,14 @@ class TitleButton(x: Int, y: Int, w: Int, private val wide: Boolean, private val
 		g.fill(x0 + 1, y0 + 1, x0 + 2, y1 - 1, 0xFFC4B5FD.toInt())
 		g.fill(x0 + 1, y1 - 2, x1 - 1, y1 - 1, 0xFF5B21B6.toInt())
 		g.fill(x1 - 2, y0 + 1, x1 - 1, y1 - 1, 0xFF5B21B6.toInt())
+		// A session uploading after you left fills it on a darker violet: the button left to right, the tile bottom to top.
+		val run = Sample.background?.third
+		if (run != null) {
+			val v = run.value.coerceIn(0f, 1f)
+			g.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0xFF3D2A86.toInt())
+			if (wide) g.fill(x0 + 1, y0 + 1, x0 + 1 + ((x1 - x0 - 2) * v).roundToInt(), y1 - 1, if (lit) 0xFF9B7BFF.toInt() else 0xFF8A67F0.toInt())
+			else g.fill(x0 + 1, y1 - 1 - ((y1 - y0 - 2) * v).roundToInt(), x1 - 1, y1 - 1, if (lit) 0xFF9B7BFF.toInt() else 0xFF8A67F0.toInt())
+		}
 		Scale.update()
 		g.flush()
 		val ms = UMatrixStack(g.pose())
@@ -51,10 +59,10 @@ class TitleButton(x: Int, y: Int, w: Int, private val wide: Boolean, private val
 		// The mark's solid leader is heavier than its hollow follower, so centred by the eye it sits a little left.
 		val mark = 11f
 		if (wide) {
-			val text = tr("tandem.tandem")
+			val text = if (run != null) uploadedShort(run) else tr("tandem.tandem")
 			val tw = mc.font.width(text)
 			val left = (l + r - (mark + 4 + tw)) / 2
-			drawIcon(ms, "logo", left, (t + b - mark) / 2, mark, Color.WHITE)
+			drawIcon(ms, if (run != null) "up" else "logo", left, (t + b - mark) / 2, mark, Color.WHITE)
 			g.drawString(mc.font, text, (left + mark + 4).roundToInt(), ((t + b) / 2 - 4).roundToInt(), 0xFFFFFF, true)
 		} else drawIcon(ms, "logo", (l + r - mark) / 2 - 0.6f, (t + b - mark) / 2, mark, Color.WHITE)
 		// Drawn as the design's 40 px tile stretched to Minecraft's 20-unit button, so it keeps its weight at any GUI scale.
@@ -68,20 +76,28 @@ class TitleButton(x: Int, y: Int, w: Int, private val wide: Boolean, private val
 			rounded(ms, bx, by, bx + w, by + q(20), q(10), Tok.warn)
 			drawText(ms, n, 12 * k, Weight.BOLD, Tok.warnInk, bx + (w - textWidth(n, 12 * k, Weight.BOLD)) / 2, by + q(10) - q(12) * LINE_EM / 2)
 		}
-		// A session still uploading after you left shows along the button's bottom edge.
-		Sample.background?.let { (_, _, run) ->
-			rounded(ms, l + 3, b - 3.5f, r - 3, b - 2.5f, 0.5f, Tok.alpha(Tok.violetInk, 0.35))
-			rounded(ms, l + 3, b - 3.5f, l + 3 + (r - l - 6) * run.value, b - 2.5f, 0.5f, Color.WHITE)
+		// The tile has no room for words: how far and how long go in a small label beside it while it uploads.
+		if (run != null && !wide && !lit) {
+			val label = uploadedShort(run)
+			val h = 24.tp; val w = textWidth(label, 12.5, Weight.MEDIUM) + 18.tp
+			val lx = if (r + 6.tp + w > mc.window.guiScaledWidth - 4) l - 6.tp - w else r + 6.tp
+			val ly = (t + b - h) / 2
+			rounded(ms, lx, ly, lx + w, ly + h, h / 2, Tok.line)
+			rounded(ms, lx + 1.tp, ly + 1.tp, lx + w - 1.tp, ly + h - 1.tp, h / 2 - 1.tp, Tok.alpha(Tok.panel, 0.94))
+			drawText(ms, label, 12.5, Weight.MEDIUM, Tok.ink, lx + 9.tp, (t + b) / 2 - (12.5 * LINE_EM).tp / 2)
 		}
 		// The full button says Tandem on its face; only the bare tile needs its name beside it.
 		if (lit && !wide) tooltip(ms, mc, r + 12.tp, t + 4.tp)
 	}
 
+	/** "63% · 20 s": short enough for the button's face. */
+	private fun uploadedShort(run: Prog) = "${(run.value * 100).roundToInt()}%" + (leftText(run.secondsLeft)?.let { " · $it" } ?: "")
+
 	/** Tandem's own tooltip: the name, then what needs you and who's playing. Flips left if it would leave the screen. */
 	private fun tooltip(ms: UMatrixStack, mc: Minecraft, x0: Float, top: Float) {
 		val title = tr("tandem.tandem")
 		val bg = Sample.background
-		val line = if (bg != null) "${if (bg.second != null) tr("tandem.handing_off_to_2", bg.second) else tr("tandem.saving", bg.first)} · ${(bg.third.value * 100).toInt()}%"
+		val line = if (bg != null) "${if (bg.second != null) tr("tandem.handing_off_to_2", bg.second) else tr("tandem.saving", bg.first)} · ${uploadedText(bg.third)}"
 		else listOfNotNull(if (count > 0) tr("tandem.need_you", count) else null, playing()).joinToString(" · ").ifEmpty { tr("tandem.play_with_friends") }
 		val w = max(textWidth(title, 13, Weight.SEMIBOLD), textWidth(line, 12.5, Weight.REGULAR)) + 22.tp
 		val h = (13 * LINE_EM + 2 + 12.5 * LINE_EM + 16).tp
