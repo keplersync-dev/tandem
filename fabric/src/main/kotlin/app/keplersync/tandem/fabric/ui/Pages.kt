@@ -238,11 +238,18 @@ class Pages(private val dialogs: Dialogs, private val rebuild: () -> Unit, priva
 			beforeDraw(matrixStack)
 			val l = getLeft(); val t = getTop(); val r = getRight(); val b = getBottom()
 			rounded(matrixStack, l, t, r, b, 5.tp, Tok.track)
-			var x = l
-			for ((f, c) in parts) {
-				val w = (r - l) * f
-				rounded(matrixStack, x, t, x + w, b, if (x == l) 5.tp else 0f, c)
-				x += w
+			// One line, rounded only at its two ends: the whole fill in the last part's colour, then each earlier part over it,
+			// the first with its rounded start and a square end.
+			// Empty parts (a world of 0 GB) would take the rounded start from the first one that shows.
+			val parts = parts.filter { it.first > 0f }
+			val ends = parts.runningFold(l) { x, (f, _) -> x + (r - l) * f }
+			if (parts.isNotEmpty()) rounded(matrixStack, l, t, ends.last(), b, 5.tp, parts.last().second)
+			for (i in 0 until parts.size - 1) {
+				val c = parts[i].second
+				if (i == 0) {
+					rounded(matrixStack, l, t, ends[1], b, 5.tp, c)
+					rounded(matrixStack, maxOf(l, ends[1] - 5.tp), t, ends[1], b, 0f, c)
+				} else rounded(matrixStack, ends[i], t, ends[i + 1], b, 0f, c)
 			}
 			super.draw(matrixStack)
 		}

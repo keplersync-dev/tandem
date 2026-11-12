@@ -136,7 +136,9 @@ fun rich(runs: List<Run>, size: Number, maxWidth: Float, lineHeight: Float = LIN
 	// Each line is a list of runs; words of one style on one line stay together, so kerning is kept.
 	val lines = mutableListOf(mutableListOf<Run>())
 	var used = 0f
-	for ((n, run) in runs.withIndex()) for ((i, word) in run.text.trim().split(' ').withIndex()) {
+	for ((n, run) in runs.withIndex()) for ((i, chunk) in run.text.trim().split(' ').withIndex()) for ((j, word) in chunk.split('\n').withIndex()) {
+		// A line break in the text starts a new line.
+		if (j > 0) { lines += mutableListOf<Run>(); used = 0f }
 		val line = lines.last()
 		val space = if (i > 0 || run.text.startsWith(' ') || n > 0 && runs[n - 1].text.endsWith(' ')) " " else ""
 		val piece = if (line.isEmpty()) word else space + word

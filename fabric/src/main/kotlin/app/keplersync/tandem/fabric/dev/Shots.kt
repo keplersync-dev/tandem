@@ -1949,6 +1949,7 @@ object Shots {
 				"tab" -> keys(GLFW.GLFW_KEY_TAB)
 				"type" -> step { mc -> arg.forEach { ch -> mc.screen?.charTyped(ch, 0) } }
 				"wait" -> sleep(arg.toInt())
+				"scroll" -> step { scrollAt(it, it.window.guiScaledWidth / 2.0, it.window.guiScaledHeight / 2.0, arg.toDouble()) }
 				"signed" -> { var n = 0; steps += { KsAccount.get()?.signedIn() == true || ++n > 1200 } }
 				"listed" -> { var n = 0; steps += { Sample.worlds.any { w -> w.name == arg && w.cloudId != null } || ++n > 1200 } }
 				"shot" -> step { shot(it, arg) }
