@@ -5,6 +5,7 @@ import app.keplersync.tandem.core.WorldSwap;
 import app.keplersync.tandem.fabric.account.Account;
 import app.keplersync.tandem.fabric.account.LogBook;
 import app.keplersync.tandem.fabric.account.Prefs;
+import app.keplersync.tandem.fabric.play.HostFit;
 import app.keplersync.tandem.fabric.play.Hosting;
 import app.keplersync.tandem.fabric.play.Joining;
 import app.keplersync.tandem.fabric.play.WorldRules;
@@ -95,6 +96,7 @@ public final class TandemClient implements ClientModInitializer {
 		Hosting.init();
 		Joining.init();
 		WorldRules.init();
+		HostFit.init();
 		Updates.init();
 		devRun();
 	}

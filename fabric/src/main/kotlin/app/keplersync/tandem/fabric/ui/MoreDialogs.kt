@@ -1,5 +1,6 @@
 package app.keplersync.tandem.fabric.ui
 
+import app.keplersync.tandem.core.HostNeeds
 import app.keplersync.tandem.core.KeplerSyncApi
 import app.keplersync.tandem.fabric.account.Account as KsAccount
 import app.keplersync.tandem.fabric.account.LogBook
@@ -565,7 +566,8 @@ fun Dialogs.copyLink() {
  * [leave] gets the pick, or null to close for everyone, and closes the dialog or opens the next one in its place.
  */
 fun Dialogs.leave(friends: List<Person>, leave: (Person?) -> Unit) {
-	val sorted = friends.sortedByDescending { it.bars }
+	// Anyone whose PC would struggle goes below everyone else, then the best connection first.
+	val sorted = friends.sortedWith(compareBy<Person> { it.hostProblem != null }.thenByDescending { it.bars })
 	var pick = sorted.first()
 	layers.openDialog {
 		val w = 460
@@ -591,7 +593,7 @@ fun Dialogs.leave(friends: List<Person>, leave: (Person?) -> Unit) {
 	}
 }
 
-/** Someone in the hand-off list: a radio, their face and name, Best connection on the first, and their bars. */
+/** Someone in the hand-off list: a radio, their face and name, Best host on the first or why their PC would struggle, and their bars. */
 private class HostPick(val person: Person, best: Boolean, private val first: Boolean, private val choose: () -> Unit) : UIComponent() {
 	var on = false
 		set(v) { field = v; face.under = surface() }
@@ -602,7 +604,11 @@ private class HostPick(val person: Person, best: Boolean, private val first: Boo
 		constrain { width = 100.percent; height = 44.at }
 		face = Face({ person.skin }, 24, 6, null, Tok.rail).constrain { x = (12 + 18 + 10).at; y = CenterConstraint() } childOf this
 		val name = Label(person.name, 14, Weight.MEDIUM)
-		val tag = if (best) pill12(tr("tandem.best_connection"), Tok.rail) else null
+		val tag = when (person.hostProblem) {
+			HostNeeds.Problem.LOW_MEMORY -> pill12(tr("tandem.low_memory"), Tok.rail, Tok.warn, Tok.warnText)
+			HostNeeds.Problem.LAGGED -> pill12(tr("tandem.lagged_last_time"), Tok.rail, Tok.warn, Tok.warnText)
+			null -> if (best) pill12(tr("tandem.best_host"), Tok.rail) else null
+		}
 		(if (tag != null) row(8, name, tag) else row(8, name))
 			.constrain { x = (12 + 18 + 10 + 24 + 10).at; y = CenterConstraint() } childOf this
 		val bars = Bars(person.bars, false).constrain { x = 14.fromEnd; y = CenterConstraint() } childOf this

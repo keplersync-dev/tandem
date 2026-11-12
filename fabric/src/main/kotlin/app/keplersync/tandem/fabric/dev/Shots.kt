@@ -9,6 +9,8 @@ import app.keplersync.tandem.fabric.ui.Person
 import app.keplersync.tandem.fabric.ui.World
 import app.keplersync.tandem.fabric.ui.WorldState
 import app.keplersync.tandem.core.Cloud
+import app.keplersync.tandem.core.HostNeeds
+import app.keplersync.tandem.fabric.play.HostFit
 import net.minecraft.client.gui.screens.worldselection.SelectWorldScreen
 import net.minecraft.client.gui.screens.worldselection.WorldSelectionList
 import net.minecraft.world.level.block.Block
@@ -321,8 +323,8 @@ object Shots {
 		step { click(it, panel("handoff")) }
 		step { shot(it, "d3-leave") }
 		keys(GLFW.GLFW_KEY_ESCAPE)
-		// Five, then ten: the list scrolls past five.
-		step { listOf("Sam", "Alex", "Riley").forEach(PausePanel::devJoin); reinit(it) }
+		// Five, then ten: the list scrolls past five. Sam's world lagged when he hosted it, so he goes last.
+		step { Sample.person("Sam").hostProblem = HostNeeds.Problem.LAGGED; listOf("Sam", "Alex", "Riley").forEach(PausePanel::devJoin); reinit(it) }
 		step { click(it, panel("handoff")) }
 		step { shot(it, "d3-leave-5") }
 		keys(GLFW.GLFW_KEY_ESCAPE)
@@ -337,6 +339,7 @@ object Shots {
 		step { PausePanel.devMode = PausePanel.Mode.JUST_PLAY; reinit(it) }
 		step { PausePanel.devJoin("Jules"); reinit(it) }
 		step { clickWidget(it, PausePanel.devQuit!!) }
+		step { Sample.person("Sam").hostProblem = null }
 		step { shot(it, "d3-leave-just") }
 		keys(GLFW.GLFW_KEY_ESCAPE)
 		step { click(it, panel("second")) }
@@ -866,11 +869,15 @@ object Shots {
 				steps += { it.screen is TitleScreen }
 				waitFor(2400) { d.background?.done() == true }
 				step { check("Alex's session uploaded", d.background?.future?.isCompletedExceptionally == false) }
+				waitFor(200) { sam?.let(HostFit::heardMsPerTick) != null }
+				step { check("Sam's Tandem said how well his PC could host: he never has, and nothing says he'd struggle", sam?.let(HostFit::heardMsPerTick) == 0f && sam?.let(HostFit::problem) == null) }
 				waitFor(4800) { marked("sam-hosting") }
 				play()
 				waitFor(600) { hosted() }
 				step { shot(it, "hand-a-list") }
 				steps += { inView(it, "button-Hand Base") }
+				// Hosting long enough that Tandem keeps how Hand Base ran (half a minute of samples, from the 10th second).
+				sleep(600)
 				step { click(it, target(it, "button-Hand Base")) }
 				waitFor(1200) { it.singleplayerServer == null && it.player != null && others() > 0 }
 				sleep(40)
@@ -928,6 +935,9 @@ object Shots {
 			}
 			step { it.stop() }
 		}
+				fun alexRan() = mc.connection?.getPlayerInfo("Alex")?.profile?.id?.let(HostFit::heardMsPerTick)
+				waitFor(4800) { alexRan() != null }
+				step { check("Alex's Tandem said how Hand Base ran when he hosted it", (alexRan() ?: 0f) > 0f) }
 		ClientTickEvents.END_CLIENT_TICK.register(::tick)
 	}
 

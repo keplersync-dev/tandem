@@ -1,6 +1,8 @@
 package app.keplersync.tandem.fabric.ui
 
+import app.keplersync.tandem.core.HostNeeds
 import app.keplersync.tandem.fabric.account.Prefs
+import app.keplersync.tandem.fabric.play.HostFit
 import com.mojang.authlib.GameProfile
 import net.minecraft.client.Minecraft
 import net.minecraft.client.resources.DefaultPlayerSkin
@@ -104,6 +106,9 @@ class Person(
 	var relayed = false
 	/** Online in the Atlas app only, with Minecraft closed. */
 	var atlasOnly = false
+	/** Why their PC would struggle to host the world this game hosts, from what their Tandem told it (set by hand for the sample's people). */
+	var hostProblem: HostNeeds.Problem? = null
+		get() = field ?: profile?.id?.let(HostFit::problem)
 
 	// Minecraft's built-in skins stand in for the sample's people, so their faces need no network.
 	val skin: ResourceLocation get() = profile?.let { Minecraft.getInstance().skinManager.getInsecureSkin(it).texture() }

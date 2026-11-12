@@ -535,10 +535,10 @@ class Scroller : UIContainer() {
 /** A scrolling area filling [parent]; children go in the returned container. */
 fun scroller(parent: UIComponent): UIContainer = (Scroller() childOf parent).content
 
-/** A small violet tag (Host, Relay, Best connection) on a row whose surface is [under]. */
-fun pill12(text: String, under: Color = Tok.panel): UIComponent {
-	val t = box(10, Tok.over(under, Tok.violet, 0.14))
-	val l = Label(text, 12, Weight.REGULAR, Tok.violetHi) childOf t
+/** A small violet tag (Host, Relay, Best host) on a row whose surface is [under]; amber ([tint], [ink]) for a warning. */
+fun pill12(text: String, under: Color = Tok.panel, tint: Color = Tok.violet, ink: Color = Tok.violetHi): UIComponent {
+	val t = box(10, Tok.over(under, tint, 0.14))
+	val l = Label(text, 12, Weight.REGULAR, ink) childOf t
 	l.constrain { x = 8.at; y = CenterConstraint() }
 	t.constrain { width = basicWidthConstraint { l.getWidth() + 16.tp }; height = 19.at }
 	return t

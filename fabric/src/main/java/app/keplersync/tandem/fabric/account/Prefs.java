@@ -20,6 +20,8 @@ public final class Prefs {
 	public boolean autoLogs = true;
 	/** The Tandem button on the title screen; off, the Open Tandem key still opens it. */
 	public boolean titleButton = true;
+	/** How each synced world ran the last time this PC hosted it: its id → milliseconds a tick, on average. */
+	public java.util.Map<String, Float> hosted = new java.util.HashMap<>();
 
 	private static Path file() {
 		return FabricLoader.getInstance().getConfigDir().resolve("tandem.json");
