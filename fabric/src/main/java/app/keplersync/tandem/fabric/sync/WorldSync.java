@@ -6,6 +6,7 @@ import app.keplersync.tandem.core.DevCloud;
 import app.keplersync.tandem.core.KeplerSyncApi;
 import app.keplersync.tandem.core.ServerCloud;
 import app.keplersync.tandem.fabric.account.Account;
+import app.keplersync.tandem.fabric.account.Prefs;
 import app.keplersync.tandem.fabric.play.Hosting;
 import app.keplersync.tandem.fabric.ui.Ingame;
 import app.keplersync.tandem.fabric.play.WorldRules;
@@ -396,9 +397,39 @@ public final class WorldSync {
 		}, 2, 2, java.util.concurrent.TimeUnit.SECONDS);
 		try {
 			devPause("upload");
-			sync().upload(dir, t.progress);
+			sendPaced(dir, t.progress);
 		} finally {
 			report.cancel(false);
+		}
+	}
+
+	/**
+	 * Uploads what [dir] hasn't sent yet. While anyone else is in this PC's game, at half the speed this PC's uploads
+	 * reach alone: at full speed the world's files fill the connection, and the game's own traffic to friends waits
+	 * behind them (they freeze while the host plays on). A big upload at full speed notes that speed.
+	 */
+	void sendPaced(Path dir, Progress progress) throws IOException {
+		java.util.concurrent.atomic.AtomicBoolean capped = new java.util.concurrent.atomic.AtomicBoolean();
+		Runnable check = () -> {
+			IntegratedServer srv = Minecraft.getInstance().getSingleplayerServer();
+			boolean others = srv != null && srv.getPlayerCount() > 1;
+			if (others) capped.set(true);
+			long speed = Prefs.get().uploadSpeed;
+			// shortcut: 512 KB/s before any upload has been measured; a slower connection still fills up until one has
+			progress.cap(!others ? 0 : speed > 0 ? speed / 2 : 512 << 10);
+		};
+		// Now, then every second on the lease timer: friends come and go while it uploads.
+		check.run();
+		java.util.concurrent.ScheduledFuture<?> pace = timer.scheduleAtFixedRate(check, 1, 1, java.util.concurrent.TimeUnit.SECONDS);
+		try {
+			sync().upload(dir, progress);
+		} finally {
+			pace.cancel(false);
+		}
+		// Smaller uploads spend too much of their time on requests to say much about the connection.
+		if (!capped.get() && progress.done() >= 8 << 20) {
+			Prefs.get().uploadSpeed = (long) progress.bytesPerSecond();
+			Prefs.save();
 		}
 	}
 

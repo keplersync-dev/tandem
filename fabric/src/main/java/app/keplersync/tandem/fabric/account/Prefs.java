@@ -22,6 +22,8 @@ public final class Prefs {
 	public boolean titleButton = true;
 	/** How each synced world ran the last time this PC hosted it: its id → milliseconds a tick, on average. */
 	public java.util.Map<String, Float> hosted = new java.util.HashMap<>();
+	/** Bytes a second this PC's last big upload reached at full speed; 0 until one has. */
+	public long uploadSpeed;
 
 	private static Path file() {
 		return FabricLoader.getInstance().getConfigDir().resolve("tandem.json");

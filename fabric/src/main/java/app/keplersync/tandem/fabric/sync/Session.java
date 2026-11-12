@@ -88,7 +88,7 @@ public final class Session {
 		if (now - lastUpload >= uploadEvery() && !sync.offline) {
 			lastUpload = now;
 			sync.async(() -> {
-				sync.sync().upload(dir, new Progress());
+				sync.sendPaced(dir, new Progress());
 				savedAt = System.currentTimeMillis();
 				TandemClient.LOG.info("Tandem uploaded a checkpoint of {}", dir.getFileName());
 				return null;
