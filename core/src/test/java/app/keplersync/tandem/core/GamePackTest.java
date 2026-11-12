@@ -148,4 +148,28 @@ class GamePackTest {
 		GameList.remember(file, GameList.entry(a, game, 4));
 		assertEquals(1, GameList.read(file).size(), "a game whose folder is gone is dropped");
 	}
+
+	@Test
+	void aGameTooBigForKeplerSyncDropsItsOtherModsFirst() {
+		JsonObject g = new JsonObject();
+		g.addProperty("contentKey", "abc");
+		com.google.gson.JsonArray mods = new com.google.gson.JsonArray();
+		for (int i = 0; i < 3000; i++) {
+			JsonObject m = new JsonObject();
+			m.addProperty("id", "mod" + i);
+			m.addProperty("name", "A mod with a fairly long name number " + i);
+			m.addProperty("version", "1.2.3+build." + i);
+			if (i % 10 == 0) m.addProperty("adds", true);
+			mods.add(m);
+		}
+		g.add("mods", mods);
+		assertTrue(g.toString().length() > 200_000);
+		JsonObject fit = GameList.fit(g, 200_000);
+		assertTrue(fit.toString().length() <= 200_000);
+		assertEquals(300, fit.getAsJsonArray("mods").size(), "only the mods that add to a world");
+		assertEquals("abc", fit.get("contentKey").getAsString());
+		assertEquals(3000, g.getAsJsonArray("mods").size(), "the game it was given stays as it was");
+		assertFalse(GameList.fit(g, 1000).has("mods"), "no list at all when even that is too much");
+		assertTrue(GameList.fit(fit, 200_000) == fit, "one that fits comes back as it is");
+	}
 }

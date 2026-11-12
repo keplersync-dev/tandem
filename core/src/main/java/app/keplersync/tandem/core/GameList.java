@@ -79,4 +79,21 @@ public final class GameList {
 		e.add("mods", adds);
 		return e;
 	}
+
+	/**
+	 * [game] at no more than [max] characters as JSON: with every mod if it fits, else only the mods that add to a world,
+	 * else no mod list at all. The fingerprint, loader and pack always stay.
+	 */
+	public static JsonObject fit(JsonObject game, int max) {
+		if (game.toString().length() <= max || !game.has("mods") || !game.get("mods").isJsonArray()) return game;
+		JsonArray adds = new JsonArray();
+		for (JsonElement m : game.getAsJsonArray("mods")) {
+			if (m.isJsonObject() && m.getAsJsonObject().has("adds")) adds.add(m);
+		}
+		JsonObject smaller = game.deepCopy();
+		smaller.add("mods", adds);
+		if (smaller.toString().length() <= max) return smaller;
+		smaller.remove("mods");
+		return smaller;
+	}
 }

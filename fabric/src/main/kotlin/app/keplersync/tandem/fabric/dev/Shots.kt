@@ -461,6 +461,7 @@ object Shots {
 				steps += { marked("alex-uploading") }
 				waitFor(WorldState.SAVING, 400)
 				step { check("sees Alex saving", shared()?.state == WorldState.SAVING) }
+				steps += { inView(it, "button-Shared Base") }
 				step { click(it, target(it, "button-Shared Base")) }
 				sleep(30)
 				step { shot(it, "lease-b-waiting") }
@@ -498,6 +499,7 @@ object Shots {
 				// Sam's game is gone now; his lease runs out within 90 seconds.
 				waitFor(WorldState.READY, 3600)
 				step { check("Shared Base is free again after Sam's game stopped", shared()?.state == WorldState.READY) }
+				steps += { inView(it, "button-Shared Base") }
 				step { click(it, target(it, "button-Shared Base")) }
 				var n = 0
 				steps += { it.player != null && it.screen == null || ++n > 2400 }
@@ -868,6 +870,7 @@ object Shots {
 				play()
 				waitFor(600) { hosted() }
 				step { shot(it, "hand-a-list") }
+				steps += { inView(it, "button-Hand Base") }
 				step { click(it, target(it, "button-Hand Base")) }
 				waitFor(1200) { it.singleplayerServer == null && it.player != null && others() > 0 }
 				sleep(40)
@@ -884,6 +887,7 @@ object Shots {
 				waitFor(4800) { marked("alex-synced") }
 				waitFor(600) { hosted() }
 				step { shot(it, "hand-b-list") }
+				steps += { inView(it, "button-Hand Base") }
 				step { click(it, target(it, "button-Hand Base")) }
 				waitFor(1200) { it.singleplayerServer == null && it.player != null && others() > 0 }
 				step { check("joined Alex's synced world from Play", it.singleplayerServer == null && others() > 0) }
@@ -993,6 +997,7 @@ object Shots {
 				steps += { marked("sam-uploading") }
 				play()
 				waitFor(600) { base()?.state == WorldState.SAVING }
+				steps += { inView(it, "button-Rescue Base") }
 				step { click(it, target(it, "button-Rescue Base")) }
 				waitFor(4800) { app.keplersync.tandem.fabric.ui.devQuitShown }
 				step { check("told Sam quit before his upload finished", app.keplersync.tandem.fabric.ui.devQuitShown) }
@@ -1011,6 +1016,7 @@ object Shots {
 				step { System.setProperty("tandem.downloadPauseMs", "120000") }
 				play()
 				waitFor(600) { base() != null }
+				steps += { inView(it, "button-Rescue Base") }
 				step { click(it, target(it, "button-Rescue Base")) }
 				waitFor(1200) { app.keplersync.tandem.fabric.ui.devAsk != null }
 				step { check("a slow download offers to ask Alex to host", app.keplersync.tandem.fabric.ui.devAsk != null) }
@@ -1038,6 +1044,7 @@ object Shots {
 				// Free: he hosts it, then quits while his upload is held (as if the game closed).
 				play()
 				waitFor(600) { base() != null }
+				steps += { inView(it, "button-Rescue Base") }
 				step { click(it, target(it, "button-Rescue Base")) }
 				waitFor(2400) { hosting() }
 				step { check("hosted Rescue Base once it was free", hosting()) }
@@ -1093,6 +1100,7 @@ object Shots {
 				steps += { marked("sam-hosting") }
 				play()
 				waitFor(1200) { Sample.worlds.any { w -> w.name == "Crash Base" && w.state == WorldState.HOSTED } }
+				steps += { inView(it, "button-Crash Base") }
 				step { click(it, target(it, "button-Crash Base")) }
 				waitFor(2400) { it.singleplayerServer == null && it.player != null && others() > 0 }
 				step { check("joined Sam's game", it.singleplayerServer == null && others() > 0) }
@@ -1156,6 +1164,7 @@ object Shots {
 			fun playIt() {
 				play()
 				waitFor(600) { world() != null }
+				steps += { inView(it, "button-History Base") }
 				step { click(it, target(it, "button-History Base")) }
 				waitFor(2400) { it.singleplayerServer != null && it.player != null && it.screen == null }
 			}
@@ -1225,6 +1234,7 @@ object Shots {
 				waitFor(4800) { marked("sam-broke") }
 				play()
 				waitFor(600) { world()?.state == WorldState.READY }
+				steps += { inView(it, "button-History Base") }
 				step { click(it, target(it, "button-History Base")) }
 				waitFor(2400) { dialogTargets["previous-version"]?.let { b -> (it.screen as? PlayScreen) != null } == true }
 				sleep(20)
@@ -1247,6 +1257,7 @@ object Shots {
 				play()
 				waitFor(1200) { world()?.state == WorldState.VERSIONS }
 				step { check("History Base shows it split into versions", world()?.state == WorldState.VERSIONS) }
+				steps += { inView(it, "button-History Base") }
 				step { click(it, target(it, "button-History Base")) }
 				waitFor(600) { dialogTargets["version-You"] != null && (it.screen as? PlayScreen)?.devBusy() == true }
 				sleep(20)
@@ -1315,6 +1326,7 @@ object Shots {
 			fun playIt(name: String = "Own Base") {
 				play()
 				waitFor(600) { world(name) != null }
+				steps += { inView(it, "button-$name") }
 				step { click(it, target(it, "button-$name")) }
 				waitFor(2400) { it.singleplayerServer != null && it.player != null && it.screen == null }
 			}
@@ -1481,6 +1493,7 @@ object Shots {
 		} else if (me == "Sam") {
 			step { shot(it, "sync-b-list") }
 			step { check("Shared Base is listed and ready", shared()?.state == WorldState.READY) }
+			steps += { inView(it, "button-Shared Base") }
 			step { click(it, target(it, "button-Shared Base")) }
 			steps += { mc -> mc.player != null && mc.screen == null }
 			step { check("found Alex's gold and diamond", has(it, 20, Blocks.GOLD_BLOCK) && has(it, 21, Blocks.DIAMOND_BLOCK)) }

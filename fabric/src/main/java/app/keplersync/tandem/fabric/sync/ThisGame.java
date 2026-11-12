@@ -84,8 +84,11 @@ public final class ThisGame {
 		} catch (IOException | RuntimeException e) {
 			TandemClient.LOG.warn("Couldn't tell which launcher profile this game is", e);
 		}
-		return g;
+		return GameList.fit(g, MAX_CHARS);
 	}
+
+	/** Under KeplerSync's 256 KB for a world's game, which turns the whole save away when it's over. */
+	static final int MAX_CHARS = 200_000;
 
 	/**
 	 * Everything this game adds to a world, as one fingerprint: every entry in Minecraft's registries (blocks, items,
