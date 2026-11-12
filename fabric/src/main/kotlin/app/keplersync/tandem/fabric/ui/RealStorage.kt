@@ -154,6 +154,12 @@ object RealLeave {
 				}
 				return@io
 			}
+			// A world from another game stays there: opened with this game's mods it would lose what theirs added.
+			if (w.levelId == null && w.state == WorldState.OTHER) {
+				layers.toast(tr("tandem.stopped_syncing_s", w.name), tr("tandem.its_a_normal_world_in_the_game_it"), undo = { handled -= id; keepSyncing(layers, w) { RealWorlds.refresh { } } }, ms = 10000)
+				RealWorlds.refresh { }
+				return@io done()
+			}
 			val level = w.levelId ?: WorldSync.newFolder(w.name)
 			val dir = WorldSync.folder(level)
 			val behind = w.levelId == null || LocalState.load(dir).base?.id != w.head
@@ -223,7 +229,7 @@ object RealLeave {
 			}
 		}) {
 			Sample.worlds.remove(w)
-			layers.toast(tr("tandem.you_left", w.name), if (delete) tr("tandem.your_copy_is_deleted_and_the_others", w.owner) else tr("tandem.your_copy_is_a_normal_world_on"))
+			layers.toast(tr("tandem.you_left", w.name), if (delete) tr("tandem.your_copy_is_deleted_and_the_others", w.owner) else if (w.levelId == null) tr("tandem.s_can_share_it_with_you_again", w.owner) else tr("tandem.your_copy_is_a_normal_world_on"))
 			RealWorlds.refresh { }
 			done()
 		}

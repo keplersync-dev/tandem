@@ -122,7 +122,7 @@ fun Dialogs.sync(world: String, size: String, played: List<String>, edit: Boolea
 				if (edit) tr("tandem.add_friends_to", world) else tr("tandem.sync", world),
 				if (edit) tr("tandem.friends_you_add_can_play_it_and") else tr("tandem.friends_you_pick_can_host_the_latest"), 500,
 			),
-			if (order.isEmpty()) wrapped(tr("tandem.all_your_friends_are_in_already", world), 13, Weight.REGULAR, Tok.muted, 500.tp, 1.5f) else box,
+			if (order.isEmpty()) wrapped(if (Sample.friends.isEmpty()) tr("tandem.no_friends_yet_add_them_later") else tr("tandem.all_your_friends_are_in_already", world), 13, Weight.REGULAR, Tok.muted, 500.tp, 1.5f) else box,
 		)
 		if (!edit) {
 			val o = if (RealStorage.on) RealStorage.of { } else null
@@ -807,8 +807,9 @@ private fun Dialogs.stopSyncingReal(w: World, stopped: () -> Unit) {
 			if (pick != 2) return@Button RealLeave.stop(this, w, pick == 1, stopped)
 			if (RealStorage.of { }?.own != null) RealStorage.move(listOf(w), "own", layers, stopped) else ownStorage(w, stopped)
 		}
+		val elsewhere = w.levelId == null && w.state == WorldState.OTHER
 		val opts = mutableListOf(
-			Opt(tr("tandem.keep_it_as_a_normal_world"), tr("tandem.the_latest_version_becomes_a_regular_singleplayer")),
+			Opt(tr("tandem.keep_it_as_a_normal_world"), if (elsewhere) tr("tandem.it_stays_in_the_game_it_was") else tr("tandem.the_latest_version_becomes_a_regular_singleplayer")),
 			Opt(tr("tandem.move_it_to_a_server"), if (host != null) tr("tandem.once_s_session_ends_download_as_zip", host) else tr("tandem.download_a_zip_ready_for_a_dedicated")),
 		)
 		if (w.storage != "own") opts += Opt(tr("tandem.keep_syncing_with_your_own_storage"), tr("tandem.move_it_to_your_own_cloudflare_r2"))
@@ -1067,7 +1068,7 @@ class DialogScreen(open: (Dialogs) -> Unit) : TandemScreen() {
 		val typing = window.focusedComponent is Field
 		when {
 			keyCode == UKeyboard.KEY_TAB -> { window.unfocus(); Focus.move(modifiers?.isShift == true) }
-			keyCode == UKeyboard.KEY_ESCAPE -> if (!layers.escape()) super.onKeyPressed(keyCode, typedChar, modifiers)
+			keyCode == UKeyboard.KEY_ESCAPE -> if (!layers.escape()) { window.unfocus(); super.onKeyPressed(keyCode, typedChar, modifiers) }
 			!typing && (keyCode == UKeyboard.KEY_ENTER || keyCode == UKeyboard.KEY_SPACE) -> if (!Focus.press()) super.onKeyPressed(keyCode, typedChar, modifiers)
 			else -> super.onKeyPressed(keyCode, typedChar, modifiers)
 		}

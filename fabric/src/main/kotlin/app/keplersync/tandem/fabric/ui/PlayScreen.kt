@@ -17,6 +17,7 @@ import gg.essential.elementa.dsl.pixels
 import app.keplersync.tandem.fabric.TandemClient
 import app.keplersync.tandem.fabric.Updates
 import net.minecraft.client.Minecraft
+import net.minecraft.client.gui.screens.worldselection.CreateWorldScreen
 import gg.essential.universal.UKeyboard
 import gg.essential.universal.UMatrixStack
 import java.awt.Color
@@ -29,7 +30,7 @@ import kotlin.math.min
  * extractor, not tried yet.
  */
 class PlayScreen : TandemScreen() {
-	private enum class Tab(val label: String) { PLAY(tr("tandem.play")), STORAGE(tr("tandem.storage")), SETTINGS(tr("tandem.settings")) }
+	private enum class Tab(val label: String) { PLAY(tr("tandem.play")), SYNCED(tr("tandem.synced_worlds")), STORAGE(tr("tandem.storage")), SETTINGS(tr("tandem.settings")) }
 
 	private var tab = Tab.PLAY
 	private val layers = Layers()
@@ -42,6 +43,8 @@ class PlayScreen : TandemScreen() {
 
 	/** Dev screenshots: things the runner clicks, by name. */
 	internal val devTargets = mutableMapOf<String, UIComponent>()
+
+	private val synced = SyncedPage(layers, dialogs, { build() }, ::showDetail, { act(it) }, ::openMenu, devTargets)
 
 	init {
 		window.onMouseClick { layers.closeMenu() }
@@ -121,6 +124,8 @@ class PlayScreen : TandemScreen() {
 		val open = detail
 		if (open != null) {
 			pages.details(kept("page", body()), open, detailTab, { detailTab = it; build() }, ::act)
+		} else if (tab == Tab.SYNCED) {
+			synced.build(kept("page", body()))
 		} else if (tab == Tab.STORAGE) {
 			pages.storage(kept("page", body()))
 		} else if (tab == Tab.SETTINGS) {
@@ -193,16 +198,16 @@ class PlayScreen : TandemScreen() {
 	private fun worlds(area: UIComponent) {
 		val list = kept("worlds", area)
 		devTargets["worlds"] = area
-		val (mine, other) = Sample.worlds.partition { it.state != WorldState.OTHER }
+		// A synced world that can't open in this game and isn't in its saves belongs to another pack: a friend hosting it
+		// is joined from the friends list. Sample worlds (no cloud id) keep their rows.
+		val shown = Sample.worlds.filter { it.state != WorldState.OTHER || it.levelId != null || it.cloudId == null }
+		val (mine, other) = shown.partition { it.state != WorldState.OTHER }
 		val banners = listOfNotNull(update(), if (!Sample.reachable) unreachable() else null)
 		banners.forEachIndexed { i, b -> b.constrain { x = 24.at; y = if (i == 0) 22.at else SiblingConstraint(12.tp) } childOf list }
 		heading(tr("tandem.worlds"), tr("tandem.pick_one_to_play_invite_friends_from")).constrain {
 			x = 24.at; y = if (banners.isEmpty()) 22.at else SiblingConstraint(12.tp)
 		} childOf list
-		if (Sample.worlds.isEmpty()) {
-			wrapped(tr("tandem.no_worlds_yet_make_one_from_minecrafts"), 14, Weight.REGULAR, Tok.muted, (W - 1 - SIDE - 48).tp, 1.5f)
-				.constrain { x = 24.at; y = SiblingConstraint(16.tp) } childOf list
-		}
+		if (shown.isEmpty()) emptyRow() childOf list
 		for ((i, w) in mine.withIndex()) worldRow(w, if (i == 0) 12 else 8) childOf list
 		if (other.isNotEmpty()) {
 			Label(tr("tandem.different_mods_or_minecraft_version"), 14, Weight.BOLD, Tok.sec).constrain { x = 24.at; y = SiblingConstraint(24.tp) } childOf list
@@ -224,6 +229,22 @@ class PlayScreen : TandemScreen() {
 			height = basicHeightConstraint { t.getHeight() }
 		}
 		return c
+	}
+
+	/** No world to show: a dashed row the size of a world row, with Create a world. */
+	private fun emptyRow(): UIComponent {
+		val row = Dashed(12).constrain { x = 24.at; y = SiblingConstraint(12.tp); width = 100.percent - 48.at; height = ROW_H.at }
+		val thumb = box(7, Tok.raise, Tok.line).constrain { x = 11.at; y = CenterConstraint(); width = 56.at; height = 42.at } childOf row
+		Icon("plus", 18, Tok.muted).constrain { x = CenterConstraint(); y = CenterConstraint() } childOf thumb
+		val create = Button(tr("tandem.create_a_world"), Kind.FILLED, Size.NORMAL, 148, Tok.panel) {
+			val mc = Minecraft.getInstance()
+			CreateWorldScreen.openFresh(mc, mc.screen)
+		}.constrain { x = 14.fromEnd; y = CenterConstraint() } childOf row
+		devTargets["create-world"] = create
+		val info = Column(3).constrain { x = 81.at; y = CenterConstraint(); width = 100.percent - (81 + 14 + 148 + 14).at } childOf row
+		info.add(Label(tr("tandem.no_worlds_in_this_game_yet"), 15, Weight.SEMIBOLD).fitWithin(info))
+		info.add(Label(tr("tandem.create_one_or_join_a_friend_when"), 13, Weight.REGULAR, Tok.muted).fitWithin(info))
+		return row
 	}
 
 	private fun worldRow(w: World, gap: Int): UIComponent {
@@ -254,13 +275,16 @@ class PlayScreen : TandemScreen() {
 			// A first upload that isn't running (KeplerSync refused it) opens here; one under way, or a friend's, doesn't.
 			.also { it.enabled = (Sample.reachable || !synced) && !(w.cloudId != null && w.state == WorldState.FIRST && (w.upload != null || w.levelId == null)) }
 			.constrain { x = 65.fromEnd; y = CenterConstraint() } childOf row
-		IconButton("more", 40, Tok.raise) {
-			val items = menuFor(w)
-			// min-width 200 inside 6 px padding and a 1 px border; 8 px in from the row's right edge.
-			val width = min(max(200.tp, items.maxOf { textWidth(it.title, 14, Weight.MEDIUM) } + 24.tp), 360.tp) + 14.tp
-			layers.openMenu(row.getRight() - 8.tp - width, row.getBottom() + 4.tp, width, items, flipAbove = row.getTop() - 4.tp, owner = "world:${w.name}")
-		}.constrain { x = 11.fromEnd; y = CenterConstraint() } childOf row
+		IconButton("more", 40, Tok.raise) { openMenu(w, row) }.constrain { x = 11.fromEnd; y = CenterConstraint() } childOf row
 		return row
+	}
+
+	/** A world's … menu, under its [row]. */
+	private fun openMenu(w: World, row: UIComponent) {
+		val items = menuFor(w)
+		// min-width 200 inside 6 px padding and a 1 px border; 8 px in from the row's right edge.
+		val width = min(max(200.tp, items.maxOf { textWidth(it.title, 14, Weight.MEDIUM) } + 24.tp), 360.tp) + 14.tp
+		layers.openMenu(row.getRight() - 8.tp - width, row.getBottom() + 4.tp, width, items, flipAbove = row.getTop() - 4.tp, owner = "world:${w.name}")
 	}
 
 	/** What a world's button does with the sample data. Your mods never match Sam's, so joining shows why. */
@@ -276,7 +300,9 @@ class PlayScreen : TandemScreen() {
 
 	private fun menuFor(w: World) = when (w.state) {
 		WorldState.LOCAL -> listOf(MenuItem(tr("tandem.sync_this_world")) { syncWorld(w) })
-		WorldState.OTHER -> listOf(MenuItem(tr("tandem.download_as_zip")) { pages.zip(w) })
+		// A synced world from another game: its details, history and members work wherever it plays.
+		WorldState.OTHER -> if (w.owner == null) listOf(MenuItem(tr("tandem.download_as_zip")) { pages.zip(w) })
+			else listOf(MenuItem(tr("tandem.details")) { showDetail(w) }, MenuItem(tr("tandem.download_as_zip")) { pages.zip(w) }) + leaveItems(w)
 		else -> listOf(MenuItem(tr("tandem.details")) { showDetail(w) }, MenuItem(tr("tandem.download_as_zip")) { pages.zip(w) }) + leaveItems(w)
 	}
 
@@ -533,6 +559,17 @@ class PlayScreen : TandemScreen() {
 			"mods-version" -> dialogs.mods(world(tr("tandem.skyblock_2023")))
 			"storage" -> { tab = Tab.STORAGE; build() }
 			"settings" -> { tab = Tab.SETTINGS; build() }
+			"synced" -> { SyncedPage.folded.clear(); SyncedPage.query = ""; SyncedPage.whose = 0; tab = Tab.SYNCED; build() }
+			"synced-many" -> { Sample.many(true); SyncedPage.folded.clear(); SyncedPage.query = ""; SyncedPage.whose = 0; tab = Tab.SYNCED; build() }
+			"synced-many-off" -> { Sample.many(false); build() }
+			"synced-folded" -> { tab = Tab.SYNCED; build(); SyncedPage.folded.clear(); SyncedPage.folded += Sample.foldedForShots; build() }
+			"how-differs" -> { tab = Tab.SYNCED; build(); synced.howToPlay(world("Skyblock")) }
+			"how-version" -> { tab = Tab.SYNCED; build(); synced.howToPlay(world("Moon base")) }
+			"how-update" -> { tab = Tab.SYNCED; build(); synced.howToPlay(world("Sky base 2")) }
+			"how-get" -> { tab = Tab.SYNCED; build(); synced.howToPlay(world("Skyblock 2023")) }
+			"how-own" -> { tab = Tab.SYNCED; build(); synced.howToPlay(world("Snowy base")) }
+			"how-own-list" -> { tab = Tab.SYNCED; build(); synced.howToPlayList(world("Snowy base")) }
+			"how-differs-list" -> { tab = Tab.SYNCED; build(); synced.howToPlayList(world("Skyblock")) }
 			"sync" -> syncWorld(world(tr("tandem.survival_2024")))
 			"plans" -> { tab = Tab.STORAGE; build(); dialogs.plans() }
 			"r2" -> { tab = Tab.STORAGE; build(); dialogs.ownStorage() }
@@ -588,7 +625,7 @@ class PlayScreen : TandemScreen() {
 			// The Open Tandem key closes Tandem again.
 			!typing && keyCode != 0 && TandemClient.OPEN.matches(keyCode, 0) -> restorePreviousScreen()
 			keyCode == UKeyboard.KEY_TAB -> { window.unfocus(); Focus.move(modifiers?.isShift == true) }
-			keyCode == UKeyboard.KEY_ESCAPE -> if (!layers.escape()) super.onKeyPressed(keyCode, typedChar, modifiers)
+			keyCode == UKeyboard.KEY_ESCAPE -> if (!layers.escape()) { window.unfocus(); super.onKeyPressed(keyCode, typedChar, modifiers) }
 			!typing && (keyCode == UKeyboard.KEY_ENTER || keyCode == UKeyboard.KEY_SPACE) -> if (!Focus.press()) super.onKeyPressed(keyCode, typedChar, modifiers)
 			else -> super.onKeyPressed(keyCode, typedChar, modifiers)
 		}

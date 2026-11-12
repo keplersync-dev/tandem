@@ -51,6 +51,8 @@ public interface Cloud {
 		public boolean stopped;
 		/** It stops once whoever is hosting lets go. */
 		public boolean stopWhenFree;
+		/** The game it was last saved in, as the saver's Tandem described it; null for worlds saved before that. */
+		public com.google.gson.JsonObject game;
 
 		/** [person]'s name on screen. */
 		public String nameOf(String person) {

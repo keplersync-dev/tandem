@@ -20,10 +20,14 @@ repositories {
 
 loom {
 	runs {
+		configureEach {
+			vmArg "-Dtandem.games=${project.findProperty('tandem.games') ?: "${project.findProperty('tandem.runs') ?: rootProject.file('devcloud').absolutePath}/games.json"}"
+		}
 		shots {
 			inherit client
 			name 'Shots'
 			vmArg '-Dtandem.shots=true'
+			vmArg "-Dtandem.shotsOnly=${project.findProperty('tandem.shotsOnly') ?: ''}"
 		}
 		// Two games sharing one dev cloud folder: run both to pass a world back and forth. The check runs do it by
 		// themselves, one after the other (runCheckA, runCheckB, runCheckA).

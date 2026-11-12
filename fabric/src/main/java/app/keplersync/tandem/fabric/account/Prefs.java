@@ -18,6 +18,8 @@ public final class Prefs {
 	public boolean inviteSound = true;
 	/** Send logs by itself when something goes wrong. */
 	public boolean autoLogs = true;
+	/** The Tandem button on the title screen; off, the Open Tandem key still opens it. */
+	public boolean titleButton = true;
 
 	private static Path file() {
 		return FabricLoader.getInstance().getConfigDir().resolve("tandem.json");

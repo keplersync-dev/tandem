@@ -112,10 +112,10 @@ public final class WorldSync {
 		String dir = System.getProperty("tandem.devcloud");
 		WorldSync d;
 		if (account != null) {
-			d = instance = new WorldSync(new ServerCloud(account.api, WorldSync::mods), true);
+			d = instance = new WorldSync(new ServerCloud(account.api, WorldSync::mods, ThisGame::get), true);
 			TandemClient.LOG.info("Tandem syncs worlds through KeplerSync");
 		} else if (dir != null && !dir.isEmpty()) {
-			DevCloud folder = new DevCloud(Paths.get(dir));
+			DevCloud folder = new DevCloud(Paths.get(dir)).game(ThisGame::get);
 			d = instance = new WorldSync(folder, false);
 			TandemClient.LOG.info("Tandem dev cloud: {}", folder.root());
 		} else {
@@ -199,22 +199,32 @@ public final class WorldSync {
 	public static List<String> mods() {
 		List<String> known = mods;
 		if (known != null) return known;
-		Set<String> registered = new HashSet<>();
-		for (Registry<?> r : BuiltInRegistries.REGISTRY) for (ResourceLocation k : r.keySet()) registered.add(k.getNamespace());
-		registered.remove("minecraft");
+		Set<String> registered = registered();
 		List<String> out = new ArrayList<>();
 		for (ModContainer m : FabricLoader.getInstance().getAllMods()) {
-			String id = m.getMetadata().getId();
-			if (m.getContainingMod().isPresent() || m.getMetadata().getEnvironment() == ModEnvironment.CLIENT) continue;
-			if (id.equals("java") || id.equals("minecraft") || id.equals("fabricloader")) continue;
-			if (addsContent(m, registered)) out.add(id + "@" + m.getMetadata().getVersion().getFriendlyString());
+			if (m.getContainingMod().isPresent() || m.getMetadata().getEnvironment() == ModEnvironment.CLIENT || builtIn(m)) continue;
+			if (addsContent(m, registered)) out.add(m.getMetadata().getId() + "@" + m.getMetadata().getVersion().getFriendlyString());
 		}
 		out.sort(null);
 		return mods = Collections.unmodifiableList(out);
 	}
 
+	/** Every namespace with entries in Minecraft's registries, Minecraft's own left out. */
+	static Set<String> registered() {
+		Set<String> registered = new HashSet<>();
+		for (Registry<?> r : BuiltInRegistries.REGISTRY) for (ResourceLocation k : r.keySet()) registered.add(k.getNamespace());
+		registered.remove("minecraft");
+		return registered;
+	}
+
+	/** Part of the game itself rather than a mod someone installed. */
+	static boolean builtIn(ModContainer m) {
+		String id = m.getMetadata().getId();
+		return id.equals("java") || id.equals("minecraft") || id.equals("fabricloader");
+	}
+
 	/** [m] (or a mod inside its jar) has entries in Minecraft's registries, or world generation in its data. */
-	private static boolean addsContent(ModContainer m, Set<String> registered) {
+	static boolean addsContent(ModContainer m, Set<String> registered) {
 		if (registered.contains(m.getMetadata().getId())) return true;
 		for (Path root : m.getRootPaths()) {
 			for (Path ns : list(root.resolve("assets"))) if (registered.contains(name(ns))) return true;
@@ -227,7 +237,7 @@ public final class WorldSync {
 		return false;
 	}
 
-	private static List<Path> list(Path dir) {
+	static List<Path> list(Path dir) {
 		List<Path> out = new ArrayList<>();
 		if (!Files.isDirectory(dir)) return out;
 		try (DirectoryStream<Path> s = Files.newDirectoryStream(dir)) {
@@ -238,7 +248,7 @@ public final class WorldSync {
 		return out;
 	}
 
-	private static String name(Path p) {
+	static String name(Path p) {
 		String n = p.getFileName().toString();
 		return n.endsWith("/") ? n.substring(0, n.length() - 1) : n;
 	}

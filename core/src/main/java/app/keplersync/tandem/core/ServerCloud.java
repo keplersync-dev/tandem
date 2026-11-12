@@ -64,6 +64,7 @@ public final class ServerCloud implements Cloud {
 		String storageProblem;
 		String stoppedAt;
 		boolean stopWhenFree;
+		JsonObject game;
 	}
 
 	private static final class Move {
@@ -90,6 +91,7 @@ public final class ServerCloud implements Cloud {
 
 	private final KeplerSyncApi api;
 	private final Supplier<List<String>> mods;
+	private final Supplier<JsonObject> game;
 	/** User id → name on screen ({@link #label}), from every world seen. */
 	private final Map<String, String> names = new ConcurrentHashMap<>();
 	private final Map<String, ServerWorld> lastWorlds = new ConcurrentHashMap<>();
@@ -103,8 +105,14 @@ public final class ServerCloud implements Cloud {
 
 	/** [mods] is the game's own list, saved with every session (the mods it was last played with). */
 	public ServerCloud(KeplerSyncApi api, Supplier<List<String>> mods) {
+		this(api, mods, () -> null);
+	}
+
+	/** [game] describes the game too (pack, content, every mod), sent with the world and every save; null sends none. */
+	public ServerCloud(KeplerSyncApi api, Supplier<List<String>> mods, Supplier<JsonObject> game) {
 		this.api = api;
 		this.mods = mods;
+		this.game = game;
 	}
 
 	private ServerWorld seen(ServerWorld w) {
@@ -158,6 +166,7 @@ public final class ServerCloud implements Cloud {
 		w.storageProblem = s.storageProblem;
 		w.stopped = s.stoppedAt != null;
 		w.stopWhenFree = s.stopWhenFree;
+		w.game = s.game;
 		for (User u : people(s)) {
 			w.names.put(u.id, name(u.id));
 			if (u.minecraftUuid != null) w.minecraftIds.put(u.id, u.minecraftUuid);
@@ -193,6 +202,8 @@ public final class ServerCloud implements Cloud {
 		body.addProperty("minecraftVersion", mcVersion);
 		body.add("mods", Io.GSON.toJsonTree(worldMods));
 		body.add("sharedWith", Io.GSON.toJsonTree(sharedWith));
+		JsonObject g = game.get();
+		if (g != null) body.add("game", g);
 		return view(seen(Io.GSON.fromJson(api.call("POST", "/worlds", body.toString()), ServerWorld.class)));
 	}
 
@@ -362,6 +373,8 @@ public final class ServerCloud implements Cloud {
 		body.addProperty("kind", snapshot.kind);
 		body.add("manifest", manifest);
 		body.add("mods", Io.GSON.toJsonTree(mods.get()));
+		JsonObject g = game.get();
+		if (g != null) body.add("game", g);
 		// Tandem's own name for it: if this answer is lost and the commit is sent again, the server keeps one.
 		body.addProperty("key", snapshot.id);
 		JsonObject answer = Io.GSON.fromJson(api.call("POST", "/worlds/" + world + "/snapshots", body.toString()), JsonObject.class);

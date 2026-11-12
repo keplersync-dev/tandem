@@ -257,7 +257,7 @@ class Dialogs(val layers: Layers, val changed: () -> Unit) {
 			d.extra.forEach { add(tr("tandem.extra_in_your_game_2", mod(it[0]), it[1])) }
 		}
 		Minecraft.getInstance().keyboardHandler.clipboard = lines.joinToString("\n")
-		layers.toast(tr("tandem.copied_the_list_of_mods", d.total), tr("tandem.paste_it_to_a_friend_or_into"))
+		layers.toast(tr("tandem.copied_the_list_of_mods", modCount(d.total)), tr("tandem.paste_it_to_a_friend_or_into"))
 	}
 
 	/**
@@ -386,7 +386,7 @@ class Choice(private val cardWidth: Int, private val select: () -> Unit) : Box(1
  * Rows of name and version in a rounded box, at most 184 px tall, scrolling past that.
  * Draws only the rows in view, so a world with 400 different mods stays quick.
  */
-class ModList(private val rows: List<List<String>>, private val different: Boolean) : UIComponent() {
+class ModList(private val rows: List<List<String>>, private val different: Boolean, private val names: Map<String, String> = emptyMap()) : UIComponent() {
 	var query = ""
 		set(v) { field = v; offset = 0f; target = 0f }
 	private var offset = 0f
@@ -395,7 +395,10 @@ class ModList(private val rows: List<List<String>>, private val different: Boole
 	/** Names cut to fit their row, kept so they're measured once rather than every frame. */
 	private val fitted = HashMap<String, String>()
 
-	private val shown get() = if (query.isBlank()) rows else rows.filter { it[0].contains(query.trim(), ignoreCase = true) || ModIcons.name(it[0]).contains(query.trim(), ignoreCase = true) }
+	/** A mod's name: the one the world's game gave it, else this game's or Modrinth's ([ModIcons]). */
+	private fun nameOf(id: String) = names[id] ?: ModIcons.name(id)
+
+	private val shown get() = if (query.isBlank()) rows else rows.filter { it[0].contains(query.trim(), ignoreCase = true) || nameOf(it[0]).contains(query.trim(), ignoreCase = true) }
 
 	init {
 		ModIcons.want(rows.map { it[0] })
@@ -432,7 +435,7 @@ class ModList(private val rows: List<List<String>>, private val different: Boole
 			val y = t + 1.tp + (i * ROW - offset).tp
 			if (y > b) break
 			val m = list[i]
-			val name = ModIcons.name(m[0])
+			val name = nameOf(m[0])
 			val icon = ModIcons.get(m[0])
 			val ix = l + 13.tp; val iy = y + 7.tp
 			if (icon != null) {

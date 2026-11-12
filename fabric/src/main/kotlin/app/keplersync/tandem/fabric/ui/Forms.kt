@@ -1,5 +1,6 @@
 package app.keplersync.tandem.fabric.ui
 
+import app.keplersync.tandem.core.TextEdit
 import gg.essential.elementa.UIComponent
 import gg.essential.elementa.components.UIContainer
 import gg.essential.elementa.constraints.CenterConstraint
@@ -14,8 +15,10 @@ import net.minecraft.client.Minecraft
 import kotlin.math.max
 
 /**
- * A text field: 40 tall at 14 px, or a search box 34 tall at 13 px. Click or Tab to it, then
- * type. [masked] shows dots (a secret key); [lines] above 1 wraps and grows (a textarea).
+ * A text field: 40 tall at 14 px, or a search box 34 tall at 13 px. Click or Tab to it, then type. It edits like any
+ * text box: the arrows, Home and End move the caret (by word with Ctrl, selecting with Shift), a click or drag places
+ * it, and Ctrl+A, C, X, V, Z, Shift+Z or Y, and Ctrl+Backspace or Delete do what they do everywhere (Cmd on a Mac).
+ * [masked] shows dots (a secret key) and never copies; [lines] above 1 wraps and grows (a textarea).
  */
 class Field(
 	private val placeholder: String,
@@ -26,9 +29,10 @@ class Field(
 	private val lines: Int = 1,
 	private val changed: (String) -> Unit = {},
 ) : Box(9.tp, Tok.rail, Tok.outline) {
-	var value = initial
-		private set
+	private val edit = TextEdit(initial)
+	val value: String get() = edit.text()
 	private var typing = false
+	private var dragging = false
 	private val size = if (height >= 40) 14 else 13
 
 	init {
@@ -36,53 +40,98 @@ class Field(
 			this.width = width?.at ?: 100.percent
 			this.height = (if (lines > 1) 20 + lines * 21 else height).at
 		}
-		onMouseClick { it.stopPropagation(); grabWindowFocus() }
+		onMouseClick {
+			it.stopPropagation()
+			grabWindowFocus()
+			edit.move(indexAt(it.relativeX, it.relativeY), UKeyboard.isShiftKeyDown())
+			dragging = true
+		}
+		onMouseDrag { x, y, _ -> if (dragging) edit.move(indexAt(x, y), true) }
+		onMouseRelease { dragging = false }
 		onFocus { typing = true }
 		onFocusLost { typing = false }
 		onKeyType { typedChar, keyCode ->
+			val before = edit.text()
+			val ctrl = UKeyboard.isCtrlKeyDown()
+			val shift = UKeyboard.isShiftKeyDown()
+			val clipboard = Minecraft.getInstance().keyboardHandler
 			when {
-				keyCode == UKeyboard.KEY_BACKSPACE -> value = value.dropLast(1)
-				// Ctrl+V (Cmd+V on a Mac): the R2 keys are long, and the steps beside them say to paste them.
-				keyCode == UKeyboard.KEY_V && UKeyboard.isCtrlKeyDown() -> value += Minecraft.getInstance().keyboardHandler.clipboard.filter { it >= ' ' && it != '\u007f' }
-				typedChar >= ' ' && typedChar != '\u007f' -> value += typedChar
+				keyCode == UKeyboard.KEY_BACKSPACE -> edit.backspace(ctrl)
+				keyCode == UKeyboard.KEY_DELETE -> edit.delete(ctrl)
+				keyCode == UKeyboard.KEY_LEFT -> edit.left(ctrl, shift)
+				keyCode == UKeyboard.KEY_RIGHT -> edit.right(ctrl, shift)
+				keyCode == UKeyboard.KEY_HOME -> edit.move(0, shift)
+				keyCode == UKeyboard.KEY_END -> edit.move(edit.text().length, shift)
+				ctrl && keyCode == UKeyboard.KEY_A -> edit.selectAll()
+				ctrl && keyCode == UKeyboard.KEY_C -> if (!masked && edit.selected()) clipboard.clipboard = edit.selection()
+				ctrl && keyCode == UKeyboard.KEY_X -> if (!masked && edit.selected()) clipboard.clipboard = edit.cut()
+				// The R2 keys are long, and the steps beside them say to paste them.
+				ctrl && keyCode == UKeyboard.KEY_V -> edit.insert(clipboard.clipboard.filter { it >= ' ' && it != '' }, false)
+				ctrl && keyCode == UKeyboard.KEY_Z -> if (shift) edit.redo() else edit.undo()
+				ctrl && keyCode == UKeyboard.KEY_Y -> edit.redo()
+				typedChar >= ' ' && typedChar != '' -> edit.insert(typedChar.toString(), true)
 				else -> return@onKeyType
 			}
-			changed(value)
+			if (edit.text() != before) changed(edit.text())
 		}
 		Focus.add(this, corner) { grabWindowFocus() }
 	}
 
 	private val shown get() = if (masked) "•".repeat(value.length) else value
+	private val lineHeight get() = if (lines > 1) 21.tp else size.tp * LINE_EM
+	private val firstTop get() = if (lines > 1) 11.tp else (getHeight() - size.tp * LINE_EM) / 2
+
+	/** [text] as drawn: each line's first letter and its words. One line, or wrapped by words like a textarea. */
+	private fun rows(text: String): List<Pair<Int, String>> {
+		if (lines <= 1) return listOf(0 to text)
+		val maxW = getWidth() - 26.tp
+		val out = ArrayList<Pair<Int, String>>()
+		var start = 0
+		var at = 0
+		var line: String? = null
+		for (word in text.split(' ')) {
+			val next = if (line == null) word else "$line $word"
+			if (line != null && textWidth(next, size, Weight.REGULAR) > maxW) { out += start to line; start = at; line = word } else line = next
+			at += word.length + 1
+		}
+		out += start to (line ?: "")
+		return out
+	}
+
+	private fun widthTo(row: Pair<Int, String>, index: Int) = textWidth(row.second.substring(0, (index - row.first).coerceIn(0, row.second.length)), size, Weight.REGULAR)
+
+	/** The letter a click at ([x], [y]) inside the field lands before: the nearest gap between two letters. */
+	private fun indexAt(x: Float, y: Float): Int {
+		if (value.isEmpty()) return 0
+		val rows = rows(shown)
+		val row = rows[((y - firstTop) / lineHeight).toInt().coerceIn(0, rows.lastIndex)]
+		val dx = x - 13.tp
+		var lo = 0
+		var hi = row.second.length
+		while (lo < hi) {
+			val mid = (lo + hi + 1) / 2
+			if (widthTo(row, row.first + mid) <= dx) lo = mid else hi = mid - 1
+		}
+		val right = lo < row.second.length && dx - widthTo(row, row.first + lo) > widthTo(row, row.first + lo + 1) - dx
+		return row.first + lo + if (right) 1 else 0
+	}
 
 	override fun draw(matrixStack: UMatrixStack) {
 		super.draw(matrixStack)
 		val x = getLeft() + 13.tp
-		val maxW = getWidth() - 26.tp
-		if (lines > 1) {
-			// Wrapped by words, 21 px a line, like a textarea.
-			val text = if (value.isEmpty()) placeholder else shown
-			var line = ""
-			var top = getTop() + 11.tp
-			fun flush() { drawText(matrixStack, line, size, Weight.REGULAR, if (value.isEmpty()) Tok.muted else Tok.ink, x, top); top += 21.tp; line = "" }
-			for (word in text.split(' ')) {
-				val next = if (line.isEmpty()) word else "$line $word"
-				if (line.isNotEmpty() && textWidth(next, size, Weight.REGULAR) > maxW) flush()
-				line = if (line.isEmpty()) word else if (textWidth(next, size, Weight.REGULAR) > maxW) word else next
-			}
-			val caretTop = top
-			val caretX = x + textWidth(line, size, Weight.REGULAR)
-			flush()
-			if (typing && System.currentTimeMillis() / 530 % 2 == 0L) {
-				val cx = if (value.isEmpty()) x else caretX + 1.tp
-				rounded(matrixStack, cx, caretTop + 2.tp, cx + 1.tp, caretTop + (size * LINE_EM - 1).tp, 0f, Tok.ink)
-			}
-			return
+		val empty = value.isEmpty()
+		val rows = rows(if (empty) placeholder else shown)
+		for ((n, row) in rows.withIndex()) {
+			val top = getTop() + firstTop + n * lineHeight
+			val a = maxOf(edit.from(), row.first)
+			val b = minOf(edit.to(), row.first + row.second.length)
+			if (typing && !empty && a < b) rounded(matrixStack, x + widthTo(row, a), top + 1.tp, x + widthTo(row, b), top + (size * LINE_EM - 1).tp, 2.tp, Tok.over(Tok.rail, Tok.violet, 0.45))
+			drawText(matrixStack, row.second, size, Weight.REGULAR, if (empty) Tok.muted else Tok.ink, x, top)
 		}
-		val top = getTop() + (getHeight() - size.tp * LINE_EM) / 2
-		if (value.isEmpty()) drawText(matrixStack, placeholder, size, Weight.REGULAR, Tok.muted, x, top)
-		else drawText(matrixStack, shown, size, Weight.REGULAR, Tok.ink, x, top)
 		if (typing && System.currentTimeMillis() / 530 % 2 == 0L) {
-			val cx = x + (if (value.isEmpty()) 0f else textWidth(shown, size, Weight.REGULAR)) + 1.tp
+			val n = if (empty) 0 else rows.indexOfLast { it.first <= edit.caret() }
+			val top = getTop() + firstTop + n * lineHeight
+			val cx = x + (if (empty) 0f else widthTo(rows[n], edit.caret()) + 1.tp)
 			rounded(matrixStack, cx, top + 1.tp, cx + 1.tp, top + (size * LINE_EM - 1).tp, 0f, Tok.ink)
 		}
 	}

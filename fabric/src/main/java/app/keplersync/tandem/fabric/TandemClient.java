@@ -4,6 +4,7 @@ import app.keplersync.tandem.core.Sync;
 import app.keplersync.tandem.core.WorldSwap;
 import app.keplersync.tandem.fabric.account.Account;
 import app.keplersync.tandem.fabric.account.LogBook;
+import app.keplersync.tandem.fabric.account.Prefs;
 import app.keplersync.tandem.fabric.play.Hosting;
 import app.keplersync.tandem.fabric.play.Joining;
 import app.keplersync.tandem.fabric.play.WorldRules;
@@ -64,7 +65,7 @@ public final class TandemClient implements ClientModInitializer {
 		ScreenEvents.AFTER_INIT.addPhaseOrdering(Event.DEFAULT_PHASE, LATE);
 		ScreenEvents.AFTER_INIT.register(LATE, (client, screen, width, height) -> {
 			if (screen instanceof TitleScreen) {
-				Guard.run("title screen button", () -> addTitleButton(screen, width, height, () -> client.setScreen(new PlayScreen())));
+				if (Prefs.get().titleButton) Guard.run("title screen button", () -> addTitleButton(screen, width, height, () -> client.setScreen(new PlayScreen())));
 				Guard.run("title screen invites", () -> Ingame.onTitle(screen));
 			}
 			if (screen instanceof PauseScreen pause) Guard.run("pause card", () -> PausePanel.attach(client, pause, width, height));
@@ -82,6 +83,13 @@ public final class TandemClient implements ClientModInitializer {
 			while (OPEN.consumeClick()) client.setScreen(new PlayScreen());
 		}));
 		Ingame.INSTANCE.install();
+		// Once every mod has registered: what this game adds, for the PC's list of Tandem games. Off the render thread,
+		// since a big pack has tens of thousands of entries.
+		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents.CLIENT_STARTED.register(c -> {
+			Thread t = new Thread(() -> Guard.run("noting this game", app.keplersync.tandem.fabric.sync.ThisGame::remember), "Tandem game list");
+			t.setDaemon(true);
+			t.start();
+		});
 		Account.init();
 		WorldSync.init();
 		Hosting.init();

@@ -22,6 +22,11 @@ class TitleButton(x: Int, y: Int, w: Int, private val wide: Boolean, private val
 	AbstractButton(x, y, w, SIZE, Component.literal(label(Sample.needsYou))) {
 	private val count get() = Sample.needsYou
 
+	init {
+		// FancyMenu's layout editor finds a widget by its id: a fixed one lets a pack move or hide this button for good.
+		runCatching { javaClass.getMethod("setWidgetIdentifierFancyMenu", String::class.java).invoke(this, "tandem") }
+	}
+
 	override fun onPress() = open.run()
 
 	override fun updateWidgetNarration(out: NarrationElementOutput) = defaultButtonNarrationText(out)

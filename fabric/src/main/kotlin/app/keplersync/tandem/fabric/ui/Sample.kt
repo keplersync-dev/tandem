@@ -56,6 +56,17 @@ class World(
 	var elsewhere = false
 	/** The world's icon.png on this PC, if it has one. */
 	var icon: Path? = null
+	/** A synced world's Minecraft version, always ([mc] is set only when it isn't this game's). */
+	var version: String? = null
+	/** The mods it needs (`id@version`, those that add to a world), as last saved. */
+	var needs: List<String> = emptyList()
+	/** The game it was last saved in; null for worlds saved before Tandem described games. */
+	var game: GameInfo? = null
+	/** Who saved it last ("you" for this account), and when, for the Synced worlds tab. */
+	var savedBy = ""
+	var savedAt = 0L
+	/** Who's hosting it right now, when someone else is: shown even when it plays in another game. */
+	var hostedBy: String? = null
 
 	val mine get() = owner == "You"
 	val synced get() = owner != null && state != WorldState.OTHER
@@ -151,6 +162,88 @@ object Sample {
 
 	fun world(name: String) = worlds.first { it.name == name }
 
+	// ── The Synced worlds tab: games on the sample's PC, and worlds from every one of them ──
+
+	private fun mods(vararg m: Pair<String, String>, adds: Boolean = true) = m.map { (name, v) -> GameMod(name.lowercase().replace(Regex("[^a-z0-9]"), ""), name, v, adds) }
+	private fun needs(mods: List<GameMod>) = mods.filter { it.adds }.map { it.id + "@" + it.version }
+
+	private val aged = mods("Farmer's Delight" to "1.2.4", "Supplementaries" to "3.1.11", "Create" to "6.0.6")
+	private val cobble = mods("Cobblemon" to "1.6.1", "Cobblemon Integrations" to "1.2.1", "Fight or Flight" to "0.8.2")
+	private val sf4 = mods("Ex Nihilo Creatio" to "0.4.7.2", "Tinkers' Construct" to "2.13.0.183", "Applied Energistics 2" to "rv6-stable-7", "Bonsai Trees" to "1.1.4", "Prestige" to "1.0.5")
+	private val sf4Mine = sf4 + mods("Botania" to "r1.10-364.4", "ME Capability Adapter" to "1.1.3")
+	private val sf5 = mods("Ex Deorum" to "2.4", "Create" to "0.5.1.f", "Mekanism" to "10.4.8")
+	private val atm202 = mods("AllTheModium" to "2.1.4", "Applied Energistics 2" to "19.0.21", "Mekanism" to "10.7.7", "Create" to "6.0.0")
+	private val atm204 = mods("AllTheModium" to "2.1.6", "Applied Energistics 2" to "19.2.8", "Mekanism" to "10.7.11", "Create" to "6.0.4", "FTB Quests" to "2101.1.4")
+	private val sf4Pack = Modpack("curseforge", "296062", "3565687", "SkyFactory 4", "4.2.4", "https://media.forgecdn.net/avatars/thumbnails/199/573/256/256/636907930795697123.png")
+	private val atmPack = Modpack("curseforge", "1298402", "6000001", "All the Mods 10: To the Sky", "2.0.2", "https://media.forgecdn.net/avatars/thumbnails/1389/739/256/256/638901033593272382.png")
+
+	/** This game in the sample: the Aged profile in the Modrinth App. */
+	val hereGame = GameInfo("fabric", "1.21.1", "sample-aged", aged + mods("Sodium" to "0.6.13", adds = false), PackInfo("Aged", "modrinth-app", null), "sample:aged")
+
+	/** The other Tandem games on the sample's PC. */
+	val games = listOf(
+		GameInfo("fabric", "1.21.1", "sample-cobble", cobble, PackInfo("Cobblemon", "prism", Modpack("modrinth", "MdwFAVRL", "v161", "Cobblemon Official Modpack", "1.6.1", null)), "sample:cobble"),
+		GameInfo("forge", "1.12.2", "sample-sf4", sf4Mine, PackInfo("SkyFactory 4", "curseforge", sf4Pack), "sample:sf4"),
+		GameInfo("neoforge", "1.21.1", "sample-atm", atm202, PackInfo("All the Mods 10 To the Sky", "curseforge", atmPack), "sample:atm"),
+		GameInfo("fabric", "1.21.4", "sample-eo", emptyList(), PackInfo("Essentially Optimized", "modrinth-app", null), "sample:eo"),
+	)
+
+	/** Forty more synced worlds over eight versions and loaders, for the screenshots of a long list; [on] false takes them out. */
+	fun many(on: Boolean) {
+		worlds.removeAll { it.cloudId?.startsWith("sample-many-") == true }
+		if (!on) return
+		val kinds = listOf("1.21.1" to "fabric", "1.21.1" to "neoforge", "1.20.1" to "forge", "1.20.1" to "fabric", "1.19.2" to "forge", "1.18.2" to "fabric", "1.16.5" to "forge", "1.12.2" to "forge")
+		val owners = listOf("You", "Sam", "Noor", "Jules", "Alex")
+		for (i in 0 until 40) {
+			val (v, loader) = kinds[i % kinds.size]
+			val adds = mods("Mod ${i % 7}" to "1.$i")
+			val owner = owners[i % owners.size]
+			worlds += World("World ${i + 1}", WorldState.OTHER, listOf(0.5f to c(0x6f8fae + i * 0x0a0a0a), 1f to c(0x4f7a3a))).also {
+				it.owner = owner; it.shared += owner; it.shared += "You"; it.cloudId = "sample-many-$i"; it.size = "${100 + i * 10} MB"
+				it.version = v; it.needs = needs(adds); it.savedBy = if (owner == "You") "you" else owner; it.savedAt = daysAgo(1.0 + i)
+				it.game = GameInfo(loader, v, "sample-many-$i", adds, PackInfo("Pack ${'A' + i % 13}", "curseforge", null))
+			}
+		}
+	}
+
+	/** Every section folded, for the screenshot of a long list. */
+	val foldedForShots = setOf("1.21.1|fabric", "1.21.4|vanilla", "1.21.1|neoforge", "1.20.1|forge", "1.20.1|fabric", "1.12.2|forge")
+
+	private fun daysAgo(d: Double) = System.currentTimeMillis() - (d * 86_400_000).toLong()
+
+	init {
+		for (w in worlds) if (w.owner != null) { w.version = w.mc ?: "1.21.1"; w.savedBy = w.owner!!.let { if (it == "You") "you" else it }; w.savedAt = daysAgo(0.1) }
+		world("Cobblemon Island").apply {
+			needs = needs(cobble); savedAt = daysAgo(0.2)
+			game = GameInfo("fabric", "1.21.1", "sample-cobble", cobble, PackInfo("Cobblemon run", "prism", games[0].pack!!.modpack))
+		}
+		world("Skyblock 2023").apply {
+			version = "1.20.1"; needs = needs(sf5); savedAt = daysAgo(12.0)
+			game = GameInfo("forge", "1.20.1", "sample-sf5", sf5, PackInfo("SkyFactory 5", "curseforge", Modpack("curseforge", "392141", "6044444", "SkyFactory 5", "5.0.8", "https://media.forgecdn.net/avatars/thumbnails/1146/284/256/256/638712506299204333_animated.gif")))
+		}
+		// Worlds from other games, never in this game's saves: Play leaves them out, as it does real ones.
+		fun synced(name: String, owner: String, version: String, game: GameInfo?, need: List<String>, days: Double, vararg bands: Pair<Float, Color>, mods: Mods? = null) =
+			World(name, WorldState.OTHER, bands.toList(), mods = mods).also {
+				it.owner = owner; it.shared += owner; it.shared += "You"; it.cloudId = "sample-" + name.lowercase().replace(' ', '-'); it.size = "420 MB"
+				it.version = version; it.game = game; it.needs = need; it.savedBy = if (owner == "You") "you" else owner; it.savedAt = daysAgo(days)
+				worlds += it
+			}
+		synced("Skyblock", "Jules", "1.12.2", GameInfo("forge", "1.12.2", "sample-sf4-plain", sf4 + mods("OptiFine" to "HD_U_G5", adds = false), PackInfo("SkyFactory 4 fixed", "curseforge", sf4Pack)),
+			needs(sf4), 3.0, 0.5f to c(0x9ec3e6), 1f to c(0xb7d3ee))
+		val moon = sf4Mine.map { m -> when (m.id) { "botania" -> GameMod(m.id, m.name, "r1.10-365", true); "tinkersconstruct" -> GameMod(m.id, m.name, "2.13.0.190", true); else -> m } }
+		synced("Moon base", "Sam", "1.12.2", GameInfo("forge", "1.12.2", "sample-sf4-sam", moon, PackInfo("SkyFactory 4", "curseforge", sf4Pack)), needs(moon), 5.0,
+			0.4f to c(0x1d2a44), 0.75f to c(0x3b4a6b), 1f to c(0x8c8c8c))
+		synced("Sky base 2", "Sam", "1.21.1", GameInfo("neoforge", "1.21.1", "sample-atm204", atm204, PackInfo("All the Mods 10 To the Sky", "curseforge",
+			Modpack("curseforge", "1298402", "6100001", "All the Mods 10: To the Sky", "2.0.4", "https://media.forgecdn.net/avatars/thumbnails/1389/739/256/256/638901033593272382.png"))), needs(atm204), 0.02, 0.6f to c(0x6f8fae), 1f to c(0x4f7a3a)).hostedBy = "Sam"
+		synced("Hardcore run", "You", "1.21.4", GameInfo("fabric", "1.21.4", "sample-eo", emptyList(), PackInfo("Essentially Optimized", "modrinth-app", null)), emptyList(), 21.0,
+			0.4f to c(0xa35d3a), 1f to c(0x5a2f22))
+		val survival = genMods(307).mapIndexed { i, m -> GameMod(m[0].lowercase().replace(Regex("[^a-z0-9]"), ""), m[0], m[1], i % 3 == 0) }
+		synced("Snowy base", "Noor", "1.20.1", GameInfo("fabric", "1.20.1", "sample-survival", survival, PackInfo("Survival+", "curseforge", null)), needs(survival), 2.0,
+			0.55f to c(0xdfe8ee), 1f to c(0x9fb3bf))
+		synced("big", "You", "1.21.1", null, listOf("create@5.0.0"), 21.5, 0.5f to c(0x8c8c8c), 1f to c(0x6b6b6b),
+			mods = Mods("You", listOf(listOf("Create", "5.0.0")), emptyList(), listOf(listOf("Farmer's Delight", "1.2.4"), listOf("Supplementaries", "3.1.11"))))
+	}
+
 	/** The sessions Old Survival split into. */
 	val versions = listOf(
 		Version("Sam", 0, "Tue 9:14 pm", "2 h 10 min", "38 areas of the map", "Played while connected"),
@@ -233,6 +326,9 @@ object Account {
 	var autoLogs
 		get() = Prefs.get().autoLogs
 		set(v) { Prefs.get().autoLogs = v; Prefs.save() }
+	var titleButton
+		get() = Prefs.get().titleButton
+		set(v) { Prefs.get().titleButton = v; Prefs.save() }
 	val minecraftName: String get() = Minecraft.getInstance().user.name
 }
 

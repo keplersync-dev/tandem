@@ -312,6 +312,7 @@ class Pages(private val dialogs: Dialogs, private val rebuild: () -> Unit, priva
 		col.add(section(tr("tandem.tandem_on_this_pc"), card(0, 4, parts = arrayOf(
 			setRow(tr("tandem.tell_me_when_a_friend_comes_online"), listOf(Run(tr("tandem.a_small_message_in_the_corner_also"), Weight.REGULAR, Tok.muted)), w, Toggle(Account.friendsOnline) { Account.friendsOnline = it }),
 			setRow(tr("tandem.sound_for_invites"), listOf(Run(tr("tandem.a_short_quiet_sound_when_a_friend"), Weight.REGULAR, Tok.muted)), w, Toggle(Account.inviteSound) { Account.inviteSound = it }),
+			setRow(tr("tandem.show_tandem_on_the_title_screen"), listOf(Run(tr("tandem.when_its_off_opens_tandem", TandemClient.OPEN.translatedKeyMessage.string), Weight.REGULAR, Tok.muted)), w, Toggle(Account.titleButton) { Account.titleButton = it }),
 			setRow(tr("tandem.send_logs_by_itself_when_something_goes"), listOf(Run(tr("tandem.tandems_own_messages_and_the_games_errors"), Weight.REGULAR, Tok.muted)), w, Toggle(Account.autoLogs) { Account.autoLogs = it }),
 			keys,
 		))))
@@ -381,6 +382,7 @@ class Pages(private val dialogs: Dialogs, private val rebuild: () -> Unit, priva
 					WorldState.HOSTED -> tr("tandem.is_playing_now", w.who)
 					WorldState.VERSIONS -> if (w.cloudId != null) tr("tandem.versions_to_choose_from", 1 + w.branches.size) else tr("tandem.versions_from_tue_9_14_pm_to", Sample.versions.size)
 					WorldState.SAVING -> tr("tandem.uploading_now", w.who)
+					WorldState.OTHER -> if (w.savedAt > 0) tr("tandem.who_ago", if (w.savedBy == "you") tr("tandem.you") else w.savedBy, RealWorlds.ago(w.savedAt)) else tr("tandem.you_just_now")
 					else -> tr("tandem.you_just_now")
 				}
 				val others = w.shared.filter { it != "You" && it != w.owner }
@@ -388,7 +390,7 @@ class Pages(private val dialogs: Dialogs, private val rebuild: () -> Unit, priva
 					tr("tandem.shared_with") to (if (others.isEmpty()) tr("tandem.nobody_yet") else names(others)),
 					tr("tandem.synced_by") to (w.owner ?: "You"),
 					// A real world in its first upload has no cloud id yet; it's this game's own, so its mods are too.
-					tr("tandem.mods") to if (w.cloudId == null && !RealWorlds.on) tr("tandem.214_mods_fabric_1_21_1") else if (w.mods == null) tr("tandem.the_same_as_this_game") else tr("tandem.differ_from_this_game", w.mods.total),
+					tr("tandem.mods") to if (w.cloudId == null && !RealWorlds.on) tr("tandem.214_mods_fabric_1_21_1") else if (w.mods == null) tr("tandem.the_same_as_this_game") else if (w.mods.total == 1) tr("tandem.one_differs_from_this_game") else tr("tandem.differ_from_this_game", w.mods.total),
 					tr("tandem.size") to w.size,
 					tr("tandem.last_saved") to last,
 				)) {

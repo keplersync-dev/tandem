@@ -34,6 +34,8 @@ public class DevCloud implements Cloud {
 	private final Path root;
 	private final BlobCache blobs;
 	private final LongSupplier clock;
+	/** What this game says about itself, kept with each world and save as KeplerSync does; null keeps none. */
+	private volatile java.util.function.Supplier<com.google.gson.JsonObject> game = () -> null;
 
 	public DevCloud(Path root) {
 		this(root, System::currentTimeMillis);
@@ -43,6 +45,11 @@ public class DevCloud implements Cloud {
 		this.root = root.toAbsolutePath().normalize();
 		this.blobs = new BlobCache(this.root.resolve("blobs"));
 		this.clock = clock;
+	}
+
+	public DevCloud game(java.util.function.Supplier<com.google.gson.JsonObject> game) {
+		this.game = game;
+		return this;
 	}
 
 	public Path root() {
@@ -130,6 +137,7 @@ public class DevCloud implements Cloud {
 			w.name = name;
 			w.mcVersion = mcVersion;
 			w.mods = new ArrayList<>(mods);
+			w.game = game.get();
 			w.createdBy = player;
 			w.created = clock.getAsLong();
 			w.sharedWith = new ArrayList<>(sharedWith);
@@ -222,6 +230,8 @@ public class DevCloud implements Cloud {
 			// Until someone picks, the newest session is the head and the one it raced is kept beside it.
 			if (!clean) w.branches.add(w.head);
 			w.head = snapshot.id;
+			com.google.gson.JsonObject g = game.get();
+			if (g != null) w.game = g;
 			write(w);
 			return new Committed(snapshot.id, clean);
 		});

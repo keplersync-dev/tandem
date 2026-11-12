@@ -11,6 +11,7 @@ import app.keplersync.tandem.core.Sync
 import app.keplersync.tandem.fabric.play.Joining
 import app.keplersync.tandem.fabric.sync.WorldSync
 import gg.essential.elementa.dsl.childOf
+import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.screens.TitleScreen
 import net.minecraft.world.level.storage.LevelStorageException
@@ -137,7 +138,7 @@ object RealWorlds {
 				if (mine != newest) return@execute
 				val callbacks = waiting.toList().also { waiting.clear() }
 				if (d.server) Sample.reachable = reachable
-				val sig = "$reachable|" + worlds.joinToString("|") { "${it.name}:${it.state}:${it.who}:${it.ago}:${it.pct}:${it.levelId}:${it.operators}:${it.storage}:${it.movingTo}:${it.movePct}:${it.storageProblem}:${it.stopWhenFree}:${it.icon != null}:${it.quiet}:${it.elsewhere}" }
+				val sig = "$reachable|" + worlds.joinToString("|") { "${it.name}:${it.state}:${it.who}:${it.ago}:${it.pct}:${it.levelId}:${it.operators}:${it.storage}:${it.movingTo}:${it.movePct}:${it.storageProblem}:${it.stopWhenFree}:${it.icon != null}:${it.quiet}:${it.elsewhere}:${it.savedAt}:${if (it.savedAt > 0) ago(it.savedAt) else ""}:${it.hostedBy}:${it.game?.contentKey}:${it.game?.pack?.name}" }
 				if (sig == last && Sample.worlds.isNotEmpty()) return@execute
 				last = sig
 				Sample.worlds.clear()
@@ -207,7 +208,7 @@ object RealWorlds {
 		val unread = if (cloud.values.any { it.id !in seen && !it.stopped }) levelsByWorld(summaries) else emptyMap()
 		for (cw in cloud.values) if (cw.id !in seen && !cw.stopped) out += synced(d, cw, unread[cw.id], me)
 		val icons = summaries.associate { it.levelId to it.icon }
-		for (w in out) w.icon = w.levelId?.let { icons[it] ?: WorldSync.folder(it).resolve("icon.png") }?.takeIf { Files.isRegularFile(it) }
+		for (w in out) w.levelId?.let { id -> w.icon = (icons[id] ?: WorldSync.folder(id).resolve("icon.png")).takeIf { Files.isRegularFile(it) } }
 		return out.sortedBy { it.state.rank }
 	}
 
@@ -261,6 +262,12 @@ object RealWorlds {
 		w.movePct = if (cw.moveBytes > 0) (cw.movedBytes * 100 / cw.moveBytes).toInt() else 0
 		w.storageProblem = cw.storageProblem
 		w.stopWhenFree = cw.stopWhenFree
+		w.version = cw.mcVersion
+		w.needs = cw.mods
+		w.game = GameInfo.parse(cw.game)
+		if (head != null) { w.savedBy = if (head.authorId == me) "you" else head.author ?: ""; w.savedAt = head.time }
+		w.hostedBy = lease?.takeIf { !it.heldBy(me) && it.state == Cloud.HOSTING }?.holderName
+		if (levelId == null) w.icon = cloudIcon(d, cw.id, head)
 		if (cw.id in RealLeave.full) {
 			if (levelId == null || LocalState.load(WorldSync.folder(levelId)).pending == null) RealLeave.full -= cw.id
 			else if (w.state == WorldState.READY) w.state = WorldState.PC_ONLY
@@ -268,13 +275,49 @@ object RealWorlds {
 		return w
 	}
 
+	private val fetchingIcons = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+	/**
+	 * The picture of a synced world that isn't in this game's saves: its latest save's icon.png, fetched once on the sync
+	 * thread and kept by world (saves/.tandem-icons/<world>/icon.png, so each has its own texture). The previous picture
+	 * stands in while a newer one arrives; the next reload of the list shows it.
+	 */
+	private fun cloudIcon(d: WorldSync, world: String, head: Snapshot?): Path? {
+		val dir = WorldSync.saves().resolve(".tandem-icons").resolve(world.replace(Regex("[^A-Za-z0-9_-]"), "_"))
+		val file = dir.resolve("icon.png")
+		val have = file.takeIf { Files.isRegularFile(it) }
+		val entry = head?.files?.get("icon.png") ?: return have
+		val known = try { String(Files.readAllBytes(dir.resolve("sha")), Charsets.UTF_8) } catch (e: java.io.IOException) { null }
+		// A world picture is 64 × 64: anything big isn't one, and isn't fetched.
+		if (known == entry.sha256 || entry.size > 256 * 1024 || !fetchingIcons.add(world)) return have
+		d.async {
+			try {
+				val bytes = d.cloud.openBlob(world, entry.sha256).use { it.readNBytes(256 * 1024 + 1) }
+				val sha = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+				if (sha == entry.sha256) {
+					Files.createDirectories(dir)
+					Files.write(file, bytes)
+					Files.write(dir.resolve("sha"), sha.toByteArray(Charsets.UTF_8))
+				}
+			} catch (e: Exception) {
+				TandemClient.LOG.info("Tandem couldn't fetch the picture of a synced world: {}", e.toString())
+			} finally {
+				fetchingIcons.remove(world)
+			}
+			null
+		}
+		return have
+	}
+
 	/** What differs between this game's mods and the world's, or null when they match. */
 	fun modDiff(worldMods: List<String>, host: String): Mods? {
 		fun parse(list: List<String>) = list.associate { it.substringBefore('@') to it.substringAfter('@', "") }
 		val mine = parse(WorldSync.mods())
 		val theirs = parse(worldMods)
-		val missing = theirs.filterKeys { it !in mine }.map { (id, v) -> listOf(id, v) }
-		val different = theirs.filter { (id, v) -> id in mine && mine[id] != v }.map { (id, v) -> listOf(id, mine.getValue(id), v) }
+		// Any mod installed here, not only those that count here: whether one counts depends on the game's other mods.
+		fun here(id: String) = FabricLoader.getInstance().getModContainer(id).map { it.metadata.version.friendlyString }.orElse(null)
+		val missing = theirs.filterKeys { here(it) == null }.map { (id, v) -> listOf(id, v) }
+		val different = theirs.mapNotNull { (id, v) -> here(id)?.takeIf { it != v }?.let { listOf(id, it, v) } }
 		val extra = mine.filterKeys { it !in theirs }.map { (id, v) -> listOf(id, v) }
 		return if (missing.isEmpty() && different.isEmpty() && extra.isEmpty()) null else Mods(host, missing, different, extra)
 	}

@@ -148,6 +148,20 @@ object Shots {
 		var gui = 0
 		var key = TandemClient.OPEN.saveString()
 		step { gui = it.options.guiScale().get(); key = TandemClient.OPEN.saveString() }
+		// Only the Synced worlds tab: -Ptandem.shotsOnly=synced.
+		if (System.getProperty("tandem.shotsOnly") == "synced") {
+			synced()
+			step { it.options.guiScale().set(gui); it.options.save(); it.stop() }
+			ClientTickEvents.END_CLIENT_TICK.register(::tick)
+			return
+		}
+
+		// The long Synced worlds list, left open to click through by hand: -Ptandem.shotsOnly=many.
+		if (System.getProperty("tandem.shotsOnly") == "many") {
+			play("synced-many")
+			ClientTickEvents.END_CLIENT_TICK.register(::tick)
+			return
+		}
 
 		// The Open Tandem key on the title screen opens Tandem, and pressing it again closes it.
 		step { TandemClient.OPEN.setKey(InputConstants.getKey("key.keyboard.k")); KeyMapping.resetMapping() }
@@ -357,6 +371,7 @@ object Shots {
 				step { shot(it, "sizes-" + (d ?: "play").replace("/", "-").replace(" ", "")) }
 			}
 		}
+		synced()
 		// Names from anywhere: other scripts, emoji, a styled Discord name, and ones far too long for their row.
 		size(1920, 1080, 3)
 		step { stressNames() }
@@ -1951,6 +1966,35 @@ object Shots {
 		if (step(mc)) {
 			steps.removeFirst()
 			wait = 10
+		}
+	}
+
+	/** The Synced worlds tab, folded, searched, and How to play for each kind of world, at three window sizes. */
+	private fun synced() {
+		for ((w, h, g) in listOf(Triple(1366, 768, 2), Triple(1920, 1080, 3), Triple(2560, 1440, 4))) {
+			size(w, h, g)
+			for (d in listOf("synced", "synced-folded", "how-differs", "how-differs-list", "how-version", "how-update", "how-get", "how-own", "how-own-list")) {
+				play(d)
+				sleep(40)
+				step { shot(it, d) }
+			}
+			for ((q, name) in listOf("sky" to "synced-search", "big" to "synced-unknown")) {
+				play("synced")
+				step { click(it, target(it, "synced-search")) }
+				step { mc -> q.forEach { ch -> mc.screen!!.charTyped(ch, 0) } }
+				step { shot(it, name) }
+			}
+			// Forty more worlds: the long list, then folded with its own Collapse all, then open again with Expand all.
+			play("synced-many")
+			sleep(40)
+			step { shot(it, "synced-many") }
+			step { click(it, target(it, "synced-toggle")) }
+			sleep(20)
+			step { shot(it, "synced-many-folded") }
+			step { click(it, target(it, "synced-toggle")) }
+			sleep(20)
+			step { shot(it, "synced-many-open") }
+			play("synced-many-off")
 		}
 	}
 
